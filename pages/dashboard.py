@@ -1,8 +1,19 @@
 import streamlit as st
 
 from jsa_risk.state import get_contract_price, visible_positions
-from jsa_risk.ui.blotter import render_blotter, render_import_gain_summary
-from jsa_risk.ui.kpi import render_kpi_strip
+from jsa_risk.ui.blotter import render_editable_blotter, render_import_gain_summary
+from jsa_risk.ui.charts import (
+    render_delta_scenario,
+    render_greeks_bars,
+    render_payoff_chart,
+    render_pnl_heatmap,
+)
+from jsa_risk.ui.kpi import render_kpi_strip, render_var_panel
+from jsa_risk.ui.market_strip import render_market_strip, render_massive_refresh
+
+flash = st.session_state.pop("_flash_added", None)
+if flash:
+    st.success(flash)
 
 st.markdown("###### Portfolio risk summary")
 positions = visible_positions()
@@ -26,13 +37,35 @@ with c4:
 
 st.markdown("---")
 
+st.markdown("###### Live market data")
+render_massive_refresh(positions)
+render_market_strip(positions)
+
+st.markdown("---")
+
 st.markdown("###### Position blotter")
+st.caption("Book is Snowflake-backed — Qty and Entry are editable and write straight through; check Delete to remove a row.")
 render_import_gain_summary(positions, stress, get_contract_price)
 st.write("")
-render_blotter(positions, stress, get_contract_price)
+render_editable_blotter(positions, stress, get_contract_price)
 
-st.caption(
-    "Phase 1 build — read-only blotter proving the ported pricing engine against the same "
-    "10-position seed book as the original HTML tool. Editable cells, column filters/sort, "
-    "the P&L heatmap, Delta scenario table, payoff chart, and VaR panel land in Phases 2–3."
-)
+st.markdown("---")
+st.markdown("###### Greeks by contract")
+render_greeks_bars(positions, stress, get_contract_price)
+
+st.markdown("---")
+st.markdown("###### P&L scenario heatmap")
+st.caption("Price shock (x-axis, ¢) vs. vol shock (y-axis, %) layered on top of the current stress scenario.")
+render_pnl_heatmap(positions, stress, get_contract_price)
+
+st.markdown("###### Delta scenario")
+render_delta_scenario(positions, stress, get_contract_price)
+
+st.markdown("---")
+st.markdown("###### Portfolio payoff")
+st.caption("P&L vs. a corn futures price shock, current vol & time.")
+render_payoff_chart(positions, stress, get_contract_price)
+
+st.markdown("---")
+st.markdown("###### Value at risk")
+render_var_panel(positions, stress, get_contract_price)

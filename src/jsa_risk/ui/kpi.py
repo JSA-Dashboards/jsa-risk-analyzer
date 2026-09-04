@@ -6,7 +6,7 @@ from typing import Callable, List
 import streamlit as st
 
 from jsa_risk.pricing.stress import Position, StressState, eval_position
-from jsa_risk.pricing.var import value_at_risk
+from jsa_risk.pricing.var import CORN_DAILY_VOL, value_at_risk
 
 
 def _fmt_bu(v: float) -> str:
@@ -44,3 +44,17 @@ def render_kpi_strip(
     c3.metric("Net Vega $", _fmt_dollars(net_vega), help="per 1 vol pt")
     c4.metric("Net Theta $/day", _fmt_dollars(net_theta), help="time decay")
     c5.metric("1-Day 95% VaR", _fmt_dollars(-var_95), help="delta-normal")
+
+
+def render_var_panel(
+    positions: List[Position],
+    stress: StressState,
+    get_contract_price: Callable[[str], float],
+) -> None:
+    evals = [eval_position(p, stress, get_contract_price) for p in positions]
+    net_delta = sum(e.delta_d for e in evals)
+    var_95 = value_at_risk(net_delta)
+    st.metric("1-Day 95% VaR", _fmt_dollars(-var_95))
+    st.caption(
+        f"Delta-normal: 1.645 × |net delta $| × an assumed {CORN_DAILY_VOL * 100:.1f}% daily corn futures move."
+    )
