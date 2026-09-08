@@ -2,11 +2,11 @@ from datetime import date, timedelta
 
 import streamlit as st
 
-from jsa_risk.data import positions_repo
+from jsa_risk import state
 from jsa_risk.pricing.black76 import black76
 from jsa_risk.pricing.stress import Position
 from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
-from jsa_risk.state import get_contract_price, refresh_positions
+from jsa_risk.state import get_contract_price
 
 CORN_MULT = 5000
 DEFAULT_CONTRACT_PRICE = 4.62
@@ -178,7 +178,6 @@ if submit_clicked:
             expiry_date=None if is_future else draft["expiry"],
             iv=None if is_future else draft["iv"],
         )
-        new_id = positions_repo.add_position(new_position)
-        refresh_positions()
+        new_id = state.add_position(new_position)
         st.session_state["_flash_added"] = f"Added {contract_display_name(draft['label'])} {draft['type']} — position #{new_id}."
         st.switch_page("pages/dashboard.py")

@@ -44,7 +44,7 @@ render_market_strip(positions)
 st.markdown("---")
 
 st.markdown("###### Position blotter")
-st.caption("Book is Snowflake-backed — Qty and Entry are editable and write straight through; check Delete to remove a row.")
+st.caption("This book is private to your browser session — Qty and Entry are editable; check Delete to remove a row.")
 render_import_gain_summary(positions, stress, get_contract_price)
 st.write("")
 render_editable_blotter(positions, stress, get_contract_price)

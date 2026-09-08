@@ -3,13 +3,13 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
-from jsa_risk.data import positions_repo, presets_repo, reference_repo
+from jsa_risk import state
+from jsa_risk.data import presets_repo, reference_repo
 from jsa_risk.importer.commit import positions_from_staging
 from jsa_risk.importer.mapping import IMPORT_TARGETS, auto_map, mapping_to_header_names
 from jsa_risk.importer.parsing import parse_pasted_text
 from jsa_risk.importer.staging import build_staging_row, staging_row_valid
 from jsa_risk.pricing.symbols import canonical_contract_key
-from jsa_risk.state import refresh_positions
 
 st.markdown("###### Paste or upload a position sheet")
 st.caption(
@@ -17,7 +17,8 @@ st.caption(
     "to match, you'll map them next. Every row needs a Contract symbol. Strike, entry/premium, "
     "and last-tick prices are all read as cents/bu. If your Qty column is unsigned, also map "
     "Position (\"Net Long\"/\"Net Short\"/\"Net\") to supply the sign — a bare \"Net\" means flat "
-    "and won't import. **Importing replaces the whole book.**"
+    "and won't import. **Importing replaces your whole book** — this only affects your own "
+    "browser session, never anyone else's."
 )
 
 
@@ -122,14 +123,10 @@ if "import_staging" in st.session_state:
             snapshot_iv=reference_repo.snapshot_iv,
             canonical_contract_key=canonical_contract_key,
         )
-        header_mapping = mapping_to_header_names(st.session_state.import_mapping, st.session_state.import_headers)
-        batch_id = positions_repo.replace_book(
-            positions, mapping=header_mapping, source_filename="pasted sheet", imported_by="CJACOBS",
-        )
-        refresh_positions()
+        count = state.replace_book(positions)
         for k in ["import_headers", "import_rows", "import_mapping", "import_staging"]:
             st.session_state.pop(k, None)
-        msg = f"Replaced the book with {len(positions)} position(s) (batch {batch_id})."
+        msg = f"Replaced your book with {count} position(s)."
         if estimated_count:
             msg += f" {estimated_count} had no IV in the sheet — filled from the market snapshot."
         st.success(msg)

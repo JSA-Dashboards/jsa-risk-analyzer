@@ -71,11 +71,10 @@ def render_editable_blotter(
     stress: StressState,
     get_contract_price: Callable[[str], float],
 ) -> None:
-    """Phase 2: Qty and Entry are editable and write straight through to Snowflake; row
+    """Qty and Entry are editable and write straight through to this session's book; row
     deletion via the Delete checkbox. Full per-column filter/sort and richer cell editing
-    (DTE, Mark/last-tick) land in Phase 3."""
-    from jsa_risk.data import positions_repo
-    from jsa_risk.state import refresh_positions
+    (DTE, Mark/last-tick) are a possible later pass."""
+    from jsa_risk import state
 
     df = build_blotter_dataframe(positions, stress, get_contract_price)
     editor_key = "blotter_editor"
@@ -100,19 +99,17 @@ def render_editable_blotter(
             to_delete.append(position_id)
             continue
         if "Qty" in edits:
-            positions_repo.update_position_field(position_id, "QTY", int(edits["Qty"]))
+            state.update_position_field(position_id, "QTY", int(edits["Qty"]))
             wrote_any = True
         if "Entry" in edits:
-            positions_repo.update_position_field(position_id, "ENTRY", float(edits["Entry"]))
+            state.update_position_field(position_id, "ENTRY", float(edits["Entry"]))
             wrote_any = True
 
     if to_delete:
         for pid in to_delete:
-            positions_repo.delete_position(pid)
-        refresh_positions()
+            state.delete_position(pid)
         st.rerun()
     elif wrote_any:
-        refresh_positions()
         st.rerun()
 
 
