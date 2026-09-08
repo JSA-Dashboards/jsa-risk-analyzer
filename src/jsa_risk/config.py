@@ -15,11 +15,12 @@ class ConfigError(RuntimeError):
 class SnowflakeConfig:
     account: str
     user: str
-    private_key_path: str
     role: str
     warehouse: str
     database: str
     schema: str
+    private_key_path: Optional[str] = None
+    private_key_pem: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -47,9 +48,18 @@ def _section(name: str, friendly_name: str) -> dict:
 
 def get_snowflake_config() -> SnowflakeConfig:
     s = _section("snowflake", "Snowflake")
+    private_key_path = s.get("private_key_path")
+    private_key_pem = s.get("private_key_pem")
+    if not private_key_path and not private_key_pem:
+        raise ConfigError(
+            "Snowflake key-pair auth needs either private_key_path (a local file — dev "
+            "only) or private_key_pem (the key's contents — required on Streamlit Cloud, "
+            "which has no persistent filesystem) in the [snowflake] secrets block."
+        )
     return SnowflakeConfig(
-        account=s["account"], user=s["user"], private_key_path=s["private_key_path"],
-        role=s["role"], warehouse=s["warehouse"], database=s["database"], schema=s["schema"],
+        account=s["account"], user=s["user"], role=s["role"], warehouse=s["warehouse"],
+        database=s["database"], schema=s["schema"],
+        private_key_path=private_key_path, private_key_pem=private_key_pem,
     )
 
 

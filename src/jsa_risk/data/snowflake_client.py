@@ -11,12 +11,18 @@ import streamlit as st
 from cryptography.hazmat.primitives import serialization
 from snowflake.connector.cursor import SnowflakeCursor
 
-from jsa_risk.config import get_snowflake_config
+from jsa_risk.config import SnowflakeConfig, get_snowflake_config
 
 
-def _load_private_key_der(path: str) -> bytes:
-    with open(path, "rb") as f:
-        key = serialization.load_pem_private_key(f.read(), password=None)
+def _load_private_key_der(cfg: SnowflakeConfig) -> bytes:
+    """Prefers an inline PEM (required on Streamlit Cloud, which has no persistent
+    filesystem to point a path at) over a local file path (local dev convenience)."""
+    if cfg.private_key_pem:
+        pem_bytes = cfg.private_key_pem.encode("utf-8")
+    else:
+        with open(cfg.private_key_path, "rb") as f:
+            pem_bytes = f.read()
+    key = serialization.load_pem_private_key(pem_bytes, password=None)
     return key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
@@ -30,7 +36,7 @@ def get_connection() -> snowflake.connector.SnowflakeConnection:
     return snowflake.connector.connect(
         account=cfg.account,
         user=cfg.user,
-        private_key=_load_private_key_der(cfg.private_key_path),
+        private_key=_load_private_key_der(cfg),
         role=cfg.role,
         warehouse=cfg.warehouse,
         database=cfg.database,
