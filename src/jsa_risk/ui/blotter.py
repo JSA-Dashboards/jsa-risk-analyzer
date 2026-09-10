@@ -56,6 +56,16 @@ _COMPUTED_COLUMN_CONFIG = {
     "Gain since import": st.column_config.NumberColumn(format="$%d"),
 }
 
+GAIN_COLOR = "#3a9d5d"
+LOSS_COLOR = "#c0392b"
+_SIGNED_COLUMNS = ["Delta (bu)", "Gamma $", "Vega $", "Theta $/d", "P&L", "Gain since import"]
+
+
+def _sign_style(v) -> str:
+    if pd.isna(v):
+        return ""
+    return f"color: {GAIN_COLOR}" if v >= 0 else f"color: {LOSS_COLOR}"
+
 
 def render_blotter(
     positions: List[Position],
@@ -63,7 +73,8 @@ def render_blotter(
     get_contract_price: Callable[[str], float],
 ) -> None:
     df = build_blotter_dataframe(positions, stress, get_contract_price).drop(columns=["id", "Delete"])
-    st.dataframe(df, hide_index=True, use_container_width=True, column_config=_COMPUTED_COLUMN_CONFIG)
+    styled = df.style.map(_sign_style, subset=_SIGNED_COLUMNS)
+    st.dataframe(styled, hide_index=True, use_container_width=True, column_config=_COMPUTED_COLUMN_CONFIG)
 
 
 def render_editable_blotter(
@@ -79,8 +90,13 @@ def render_editable_blotter(
     df = build_blotter_dataframe(positions, stress, get_contract_price)
     editor_key = "blotter_editor"
 
+    # Styler colors only apply to non-editable columns (Streamlit's own constraint) --
+    # Qty/Entry/Delete stay editable and plain; the computed P&L-style columns are
+    # disabled below, so the green/red coloring renders for them.
+    styled = df.style.map(_sign_style, subset=_SIGNED_COLUMNS)
+
     edited = st.data_editor(
-        df,
+        styled,
         hide_index=True,
         use_container_width=True,
         key=editor_key,

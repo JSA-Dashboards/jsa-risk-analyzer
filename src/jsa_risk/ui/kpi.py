@@ -1,6 +1,9 @@
 """KPI strip: Net Position, Net Gamma $, Net Vega $, Net Theta $/day, 1-Day 95% VaR —
 computed over whichever positions are currently visible (all of them, until Phase 3
-adds blotter filters)."""
+adds blotter filters).
+
+Rendered as custom HTML (not st.metric) so the value text itself can be colored green/red
+by sign — st.metric only colors its small delta indicator, not the main value."""
 from typing import Callable, List
 
 import streamlit as st
@@ -8,19 +11,39 @@ import streamlit as st
 from jsa_risk.pricing.stress import Position, StressState, eval_position
 from jsa_risk.pricing.var import CORN_DAILY_VOL, value_at_risk
 
+GAIN_COLOR = "#3a9d5d"
+LOSS_COLOR = "#c0392b"
 
-def _fmt_bu(v: float) -> str:
+
+def _sign_color(v: float) -> str:
+    return GAIN_COLOR if v >= 0 else LOSS_COLOR
+
+
+def _fmt_bu_signed(v: float) -> str:
+    """Just the signed number, no LONG/SHORT wording — a minus sign for short, nothing
+    (no plus) for long/flat."""
     av = abs(v)
     if av >= 1e6:
-        return f"{av / 1e6:.2f}M bu"
-    if av >= 1e3:
-        return f"{av / 1e3:.1f}K bu"
-    return f"{av:.0f} bu"
+        s = f"{av / 1e6:.2f}M bu"
+    elif av >= 1e3:
+        s = f"{av / 1e3:.1f}K bu"
+    else:
+        s = f"{av:.0f} bu"
+    return f"-{s}" if v < 0 else s
 
 
 def _fmt_dollars(v: float) -> str:
     sign = "-" if v < 0 else ""
     return f"{sign}${abs(v):,.0f}"
+
+
+def _stat_html(label: str, value_str: str, color: str, help_text: str) -> str:
+    return (
+        f"<div style='margin-bottom:4px'>"
+        f"<span style='font-size:14px;color:#898781' title='{help_text}'>{label} ⓘ</span>"
+        f"<div style='font-size:2rem;font-weight:600;line-height:1.3;color:{color}'>{value_str}</div>"
+        f"</div>"
+    )
 
 
 def render_kpi_strip(
@@ -34,16 +57,32 @@ def render_kpi_strip(
     net_vega = sum(e.vega_d for e in evals)
     net_theta = sum(e.theta_d for e in evals)
     var_95 = value_at_risk(net_delta)
+    var_signed = -var_95
 
-    direction = "LONG" if net_delta > 0 else ("SHORT" if net_delta < 0 else "FLAT")
     contracts = abs(net_delta) / 5000
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Net Position", f"{direction} {_fmt_bu(net_delta)}", help=f"≈{contracts:.1f} contracts")
-    c2.metric("Net Gamma $", _fmt_dollars(net_gamma), help="Δdelta per $1 move")
-    c3.metric("Net Vega $", _fmt_dollars(net_vega), help="per 1 vol pt")
-    c4.metric("Net Theta $/day", _fmt_dollars(net_theta), help="time decay")
-    c5.metric("1-Day 95% VaR", _fmt_dollars(-var_95), help="delta-normal")
+    c1.markdown(
+        _stat_html("Net Position", _fmt_bu_signed(net_delta), _sign_color(net_delta),
+                   f"≈{contracts:.1f} contracts"),
+        unsafe_allow_html=True,
+    )
+    c2.markdown(
+        _stat_html("Net Gamma $", _fmt_dollars(net_gamma), _sign_color(net_gamma), "Δdelta per $1 move"),
+        unsafe_allow_html=True,
+    )
+    c3.markdown(
+        _stat_html("Net Vega $", _fmt_dollars(net_vega), _sign_color(net_vega), "per 1 vol pt"),
+        unsafe_allow_html=True,
+    )
+    c4.markdown(
+        _stat_html("Net Theta $/day", _fmt_dollars(net_theta), _sign_color(net_theta), "time decay"),
+        unsafe_allow_html=True,
+    )
+    c5.markdown(
+        _stat_html("1-Day 95% VaR", _fmt_dollars(var_signed), _sign_color(var_signed), "delta-normal"),
+        unsafe_allow_html=True,
+    )
 
 
 def render_var_panel(
@@ -54,7 +93,11 @@ def render_var_panel(
     evals = [eval_position(p, stress, get_contract_price) for p in positions]
     net_delta = sum(e.delta_d for e in evals)
     var_95 = value_at_risk(net_delta)
-    st.metric("1-Day 95% VaR", _fmt_dollars(-var_95))
+    var_signed = -var_95
+    st.markdown(
+        _stat_html("1-Day 95% VaR", _fmt_dollars(var_signed), _sign_color(var_signed), "delta-normal"),
+        unsafe_allow_html=True,
+    )
     st.caption(
         f"Delta-normal: 1.645 × |net delta $| × an assumed {CORN_DAILY_VOL * 100:.1f}% daily corn futures move."
     )
