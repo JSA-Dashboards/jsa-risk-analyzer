@@ -78,6 +78,29 @@ def test_atm_iv_falls_back_to_nearest_50_delta_and_says_so():
     assert method == "~0.47d"
 
 
+def test_atm_iv_rejects_a_leg_whose_iv_market_is_too_wide_to_believe():
+    """After the 13:20 CT close the book widens but CME still publishes a mid, so the
+    number looks authoritative and is not. Corn N27 read 38.55% on a 0.16/0.60 IV
+    market, against 21.5% in the session."""
+    wide = _leg(600, "C", 0.3855, 0.469, "ATM")
+    wide["impliedVolBid"], wide["impliedVolAsk"] = 0.1604, 0.6049
+    assert _atm_iv([wide]) is None
+
+
+def test_atm_iv_accepts_a_normal_session_spread():
+    tight = _leg(525, "C", 0.2332, 0.53, "ATM")
+    tight["impliedVolBid"], tight["impliedVolAsk"] = 0.2312, 0.2353
+    iv, method = _atm_iv([tight])
+    assert iv == pytest.approx(0.2332)
+    assert method == "ATM"
+
+
+def test_atm_iv_keeps_a_leg_that_has_no_bid_ask_to_judge():
+    leg = _leg(525, "C", 0.2332, 0.53, "ATM")
+    leg["impliedVolBid"] = leg["impliedVolAsk"] = None
+    assert _atm_iv([leg])[0] == pytest.approx(0.2332)
+
+
 def test_atm_iv_refuses_a_far_out_of_the_money_leg_as_an_atm_proxy():
     """Live Z28 corn had nothing nearer than 19 delta. Skew makes that vol
     unrepresentative, so it must not be written as the contract's ATM vol."""

@@ -44,6 +44,13 @@ _USER_AGENT = "JSA-Risk-Analyzer/1.0 (python-requests)"
 # 0.15 keeps roughly 35-65 delta; beyond that, skew makes the vol unrepresentative.
 _NEAR_THE_MONEY_DELTA_TOLERANCE = 0.15
 
+# Widest IV bid/ask we will trust. CME derives IV from the mid of the top of book, so a
+# wide book produces a confident-looking number backed by nothing. Measured on corn:
+# ATM spreads ran 0.0027-0.0125 during the open session, but 0.2067-0.4445 after the
+# 13:20 CT close — 38x to 82x wider, with mids like 38.55% against a 21.5% session vol.
+# 0.05 sits an order of magnitude above normal and an order below the post-close junk.
+_MAX_IV_BID_ASK_SPREAD = 0.05
+
 CORN_OPTION_PRODUCT = "OZC"
 
 # Cache is process-wide (module-level), keyed by token_url+api_id — fine for a
@@ -159,6 +166,23 @@ def _latest_by_contract(records: Iterable[dict]) -> List[dict]:
             if r.get("transactTime") == newest.get((r.get("instrument") or {}).get("sym"))]
 
 
+def _is_quotable(leg: dict) -> bool:
+    """Is this leg's IV backed by a tight enough two-sided market to believe?
+
+    CME computes IV from the mid of the top of book. Outside the trading session the
+    book goes wide but the mid is still published, so you get an authoritative-looking
+    number derived from almost nothing — corn's July '27 ATM read 38.55% after the close
+    on a 0.16/0.60 IV market, against 21.5% in the session. A refresh scheduled for a
+    convenient hour would otherwise write that straight into the risk book.
+    """
+    if leg.get("impliedVol") is None:
+        return False
+    bid, ask = leg.get("impliedVolBid"), leg.get("impliedVolAsk")
+    if bid is None or ask is None:
+        return True                      # nothing to judge it by; don't invent a reason
+    return (ask - bid) <= _MAX_IV_BID_ASK_SPREAD
+
+
 def _atm_iv(legs: Sequence[dict]) -> Optional[Tuple[float, str]]:
     """(iv_decimal, method) for one contract, or None if it has no usable leg.
 
@@ -170,6 +194,7 @@ def _atm_iv(legs: Sequence[dict]) -> Optional[Tuple[float, str]]:
     though it were the contract's vol would be quietly wrong. Outside the band we return
     None and leave that contract's row alone rather than guess.
     """
+    legs = [l for l in legs if _is_quotable(l)]
     atm = [l for l in legs if l.get("optStat") == "ATM" and l.get("impliedVol") is not None]
     if atm:
         return sum(l["impliedVol"] for l in atm) / len(atm), "ATM"
