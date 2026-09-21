@@ -6,6 +6,15 @@ from typing import Optional
 
 import streamlit as st
 
+# Defined in the integration module so headless scripts can import it without
+# pulling Streamlit in; re-exported here because the app reads config from here.
+from jsa_risk.integrations.cme_datamine_client import (  # noqa: F401
+    CME_TOKEN_URL,
+    CmeDataMineConfig,
+    DATAMINE_BASE_URL,
+    config_from_dict as cme_datamine_config_from_dict,
+)
+
 
 class ConfigError(RuntimeError):
     """A required secret/config block is missing. Message is safe to show in the UI."""
@@ -83,3 +92,10 @@ def get_cme_config() -> Optional[CmeGreeksConfig]:
         base_url=s.get("base_url", "https://markets.api.cmegroup.com/greeks/v1"),
         token_url=s.get("token_url", "https://auth.cmegroup.com/as/token.oauth2"),
     )
+
+
+def get_cme_datamine_config() -> Optional[CmeDataMineConfig]:
+    """None (not an error) when unconfigured, matching get_cme_config."""
+    if "cme_datamine" not in st.secrets:
+        return None
+    return cme_datamine_config_from_dict(st.secrets["cme_datamine"])
