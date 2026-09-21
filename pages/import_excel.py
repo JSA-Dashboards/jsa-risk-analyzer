@@ -11,6 +11,17 @@ from jsa_risk.importer.parsing import parse_pasted_text
 from jsa_risk.importer.staging import build_staging_row, staging_row_valid
 from jsa_risk.pricing.symbols import canonical_contract_key
 
+st.markdown("###### Getting this from QST")
+st.info(
+    "1. Go to QST\n"
+    "2. Select your account\n"
+    "3. Go to Orders and Positions Summary\n"
+    "4. Export to Excel\n"
+    "5. Filter out all other commodities other than corn\n"
+    "6. Copy the entire workbook (with corn only filtered)\n"
+    "7. Paste into cells below"
+)
+
 st.markdown("###### Paste or upload a position sheet")
 st.caption(
     "Works for corn options and futures in the same sheet — column names and order don't need "
