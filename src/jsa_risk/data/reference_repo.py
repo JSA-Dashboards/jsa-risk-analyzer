@@ -2,7 +2,7 @@
 blocks and in-memory contractPrices map with admin-editable Snowflake tables. Reads are
 cached briefly since these change only when someone runs a refresh, not every rerun.
 """
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import streamlit as st
 
@@ -22,6 +22,25 @@ def snapshot_iv(canonical_key: str) -> float:
     return get_iv_snapshot().get(canonical_key, DEFAULT_IV)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def get_iv_provenance() -> List[dict]:
+    """Per-contract vol with where it came from and how old it is.
+
+    The vols are refreshed out-of-band by scripts/refresh_iv_from_cme.py, so nothing in
+    the app makes their age visible. A settlement vol from a fortnight ago looks exactly
+    like this morning's until you show AS_OF, and an expired contract's row lingers
+    indefinitely — hence this.
+    """
+    df = sf.query_df(
+        "SELECT CANONICAL_KEY, IV, AS_OF, SOURCE FROM IV_SNAPSHOT ORDER BY AS_OF DESC NULLS LAST"
+    )
+    return [
+        {"key": r["CANONICAL_KEY"], "iv": float(r["IV"]), "as_of": r["AS_OF"],
+         "source": r["SOURCE"] or ""}
+        for _, r in df.iterrows()
+    ]
+
+
 def upsert_iv_snapshot(canonical_key: str, iv: float, source: str, updated_by: str) -> None:
     sf.execute(
         """
@@ -33,6 +52,7 @@ def upsert_iv_snapshot(canonical_key: str, iv: float, source: str, updated_by: s
         (canonical_key, iv, source, updated_by, canonical_key, iv, source, updated_by),
     )
     get_iv_snapshot.clear()
+    get_iv_provenance.clear()
 
 
 @st.cache_data(ttl=60, show_spinner=False)

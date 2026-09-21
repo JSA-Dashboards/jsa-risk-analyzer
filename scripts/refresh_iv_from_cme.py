@@ -58,6 +58,16 @@ def load_private_key_der(path: str) -> bytes:
     )
 
 
+def load_private_key_der_from_pem(pem: str) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+    key = serialization.load_pem_private_key(pem.encode(), password=None)
+    return key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
 def parse_date_arg(s: str) -> date:
     try:
         return datetime.strptime(s, "%Y%m%d").date()
@@ -140,11 +150,24 @@ def main(argv: list[str]) -> int:
 
     import snowflake.connector
     sf_cfg = secrets["snowflake"]
+    auth = {}
+    if sf_cfg.get("private_key_path"):
+        auth["private_key"] = load_private_key_der(sf_cfg["private_key_path"])
+    elif sf_cfg.get("private_key_pem"):
+        auth["private_key"] = load_private_key_der_from_pem(sf_cfg["private_key_pem"])
+    elif sf_cfg.get("password"):
+        # Password auth is accepted here but NOT by jsa_risk.config, which the app uses:
+        # Streamlit Cloud gets key-pair only. This script also runs from a laptop or a
+        # scheduler against the same account, where key-pair may not be set up yet.
+        auth["password"] = sf_cfg["password"]
+    else:
+        print("No Snowflake credential in [snowflake]: set private_key_path, "
+              "private_key_pem, or password.")
+        return 2
     conn = snowflake.connector.connect(
         account=sf_cfg["account"], user=sf_cfg["user"],
-        private_key=load_private_key_der(sf_cfg["private_key_path"]),
         role=sf_cfg["role"], warehouse=sf_cfg["warehouse"],
-        database=sf_cfg["database"], schema=sf_cfg["schema"],
+        database=sf_cfg["database"], schema=sf_cfg["schema"], **auth,
     )
     written = 0
     try:
