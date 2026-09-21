@@ -19,6 +19,9 @@ ACCENT = "#3987e5"
 MUTED = "#898781"
 GAIN = "#3a9d5d"
 LOSS = "#c0392b"
+# One solid color per distinct expiry line on the payoff chart -- avoids red/green (already
+# meaning loss/gain everywhere else) and blue (Today), cycles if there are more expiries.
+EXPIRY_COLORS = ["#e8a33d", "#9b6bce", "#4fb8af", "#d9779a", "#c9a227", "#6a8caf"]
 
 
 def _fmt_cents(v: float) -> str:
@@ -164,18 +167,15 @@ def render_payoff_chart(
 
     horizons = [
         {"label": "Today", "days": 0, "dash": None, "width": 2.5, "opacity": 1.0, "color": ACCENT},
-        {"label": "+7d", "days": 7, "dash": "dash", "width": 1.5, "opacity": 0.7, "color": ACCENT},
-        {"label": "+30d", "days": 30, "dash": "dot", "width": 1.5, "opacity": 0.45, "color": ACCENT},
     ]
-    expiry_dash_cycle = ["dashdot", "longdash", "longdashdot", "dot"]
     for i, (expiry_date, dte) in enumerate(expiry_dtes):
         horizons.append({
             "label": f"{expiry_date.strftime('%b')} {expiry_date.day} ({dte}d)",
             "days": dte,
-            "dash": expiry_dash_cycle[i % len(expiry_dash_cycle)],
-            "width": 1.5,
-            "opacity": max(0.9 - i * 0.12, 0.4),
-            "color": MUTED,
+            "dash": None,
+            "width": 2.0,
+            "opacity": 1.0,
+            "color": EXPIRY_COLORS[i % len(EXPIRY_COLORS)],
         })
     for h in horizons:
         h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today) for s in xs]
