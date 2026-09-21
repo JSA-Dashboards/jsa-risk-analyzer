@@ -42,7 +42,29 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import requests
 
-from jsa_risk.config import CmeDataMineConfig
+
+DATAMINE_BASE_URL = "https://datamine.new.cmegroup.com/cme/api/v2"
+CME_TOKEN_URL = "https://auth.cmegroup.com/as/token.oauth2"
+
+
+@dataclass(frozen=True)
+class CmeDataMineConfig:
+    """Defined here rather than in jsa_risk.config so that a headless run (the droplet
+    cron) imports no Streamlit. config.py re-exports it for the app's use."""
+    api_id: str
+    password: str
+    base_url: str = DATAMINE_BASE_URL
+    token_url: str = CME_TOKEN_URL
+
+
+def config_from_dict(s) -> CmeDataMineConfig:
+    """Build from any mapping - st.secrets in the app, a tomllib dict in a script."""
+    return CmeDataMineConfig(
+        api_id=s["api_id"], password=s["password"],
+        base_url=s.get("base_url", DATAMINE_BASE_URL),
+        token_url=s.get("token_url", CME_TOKEN_URL),
+    )
+
 
 CORN_OPTION_SYMBOL = "PY"
 _USER_AGENT = "JSA-Risk-Analyzer/1.0 (python-requests)"

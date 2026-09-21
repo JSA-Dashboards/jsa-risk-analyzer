@@ -31,8 +31,8 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from jsa_risk.config import cme_datamine_config_from_dict
 from jsa_risk.integrations.cme_datamine_client import (
+    config_from_dict,
     CmeDataMineUnavailable,
     FileNotPosted,
     atm_iv_by_canonical_key,
@@ -95,7 +95,7 @@ def main(argv: list[str]) -> int:
     if "cme_datamine" not in secrets:
         print("No [cme_datamine] block in .streamlit/secrets.toml - see secrets.toml.example.")
         return 2
-    config = cme_datamine_config_from_dict(secrets["cme_datamine"])
+    config = config_from_dict(secrets["cme_datamine"])
     wanted_settlements = SETTLEMENT_CHOICES[args.settlement]
 
     try:
