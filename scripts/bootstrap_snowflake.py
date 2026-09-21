@@ -125,9 +125,16 @@ DDL_STATEMENTS = [
 ]
 
 
-def load_private_key(path: str) -> bytes:
-    with open(path, "rb") as f:
-        key = serialization.load_pem_private_key(f.read(), password=None)
+def _load_private_key(sf) -> bytes | None:
+    """RSA private key for Snowflake key-pair auth (the account enforces MFA on
+    password sign-ins), as DER bytes; None if not configured (falls back to password).
+    Source: private_key_path (.p8 file) or private_key_pem (PEM text)."""
+    path = sf.get("private_key_path")
+    pem = sf.get("private_key_pem")
+    if not path and not pem:
+        return None
+    pem_bytes = open(path, "rb").read() if path else pem.encode()
+    key = serialization.load_pem_private_key(pem_bytes, password=None)
     return key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
@@ -140,13 +147,19 @@ def main() -> int:
         secrets = tomllib.load(f)
     sf = secrets["snowflake"]
 
+    kw = {}
+    pkey = _load_private_key(sf)
+    if pkey is not None:
+        kw["private_key"] = pkey
+    else:
+        kw["password"] = sf["password"]
     conn = snowflake.connector.connect(
         account=sf["account"],
         user=sf["user"],
-        private_key=load_private_key(sf["private_key_path"]),
         role=sf["role"],
         warehouse=sf["warehouse"],
         database=sf["database"],
+        **kw,
     )
     print("Connected OK.")
 
