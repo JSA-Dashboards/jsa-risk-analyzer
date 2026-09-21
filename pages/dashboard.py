@@ -9,7 +9,11 @@ from jsa_risk.ui.charts import (
     render_pnl_heatmap,
 )
 from jsa_risk.ui.kpi import render_kpi_strip, render_var_panel
-from jsa_risk.ui.market_strip import render_market_strip, render_massive_refresh
+from jsa_risk.ui.market_strip import (
+    render_iv_provenance,
+    render_market_strip,
+    render_massive_refresh,
+)
 
 flash = st.session_state.pop("_flash_added", None)
 if flash:
@@ -40,6 +44,7 @@ st.markdown("---")
 st.markdown("###### Live market data")
 render_massive_refresh(positions)
 render_market_strip(positions)
+render_iv_provenance(positions)
 
 st.markdown("---")
 

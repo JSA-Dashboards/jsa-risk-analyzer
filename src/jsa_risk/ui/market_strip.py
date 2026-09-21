@@ -2,6 +2,7 @@
 `buildMktStrip()`) plus the "Update prices from Massive" button that fills them in
 automatically when Massive is configured.
 """
+from datetime import datetime
 from typing import List
 
 import streamlit as st
@@ -85,3 +86,67 @@ def render_massive_refresh(positions: List[Position]) -> None:
                 else:
                     msg_col.warning("No matching contracts returned from Massive.")
     st.caption("Massive futures prices are delayed ~10 minutes — not a real-time or executable quote.")
+
+
+# Vols come from a scheduled refresh, not from anything the viewer can see happening, so
+# the dashboard states their age. STALE_AFTER_DAYS is deliberately short: corn settlement
+# vols are published every trading day, so anything older than a long weekend means the
+# refresh has stopped rather than the market being quiet.
+STALE_AFTER_DAYS = 4
+
+
+def summarize_iv_provenance(rows, in_book, now, stale_after_days=STALE_AFTER_DAYS) -> dict:
+    """Pure half of render_iv_provenance, so the staleness rules are testable without
+    Streamlit. Returns {caption, warning, behind}; warning is None when vols are fresh."""
+    if not rows:
+        return {"caption": None, "warning": None, "behind": []}
+
+    dated = [r for r in rows if r.get("as_of") is not None]
+    newest = max((r["as_of"] for r in dated), default=None)
+    source = next((r["source"] for r in rows if r.get("source")), "")
+    family = (source.split(" ATM")[0].split(" (")[0] or "unknown source").strip()
+
+    bits = [f"**Implied vol:** {family}"]
+    if newest is not None:
+        bits.append(f"settled {newest:%Y-%m-%d}")
+    bits.append(f"{len(rows)} contract(s)")
+
+    warning = None
+    if newest is not None:
+        age = (now - newest).days
+        if age > stale_after_days:
+            warning = (f"Implied vols are {age} days old (newest settlement "
+                       f"{newest:%Y-%m-%d}). Run scripts/refresh_iv_from_cme.py - "
+                       f"positions are being priced off stale vol.")
+
+    # A single contract lagging the rest is the case that actually misprices a position:
+    # it looks like a normal number in the blotter with nothing to mark it out.
+    behind = []
+    if newest is not None and in_book:
+        behind = sorted(
+            r["key"] for r in rows
+            if r["key"] in in_book
+            and (r.get("as_of") is None or (newest - r["as_of"]).days > stale_after_days)
+        )
+    return {"caption": " · ".join(bits), "warning": warning, "behind": behind}
+
+
+def render_iv_provenance(positions: List[Position]) -> None:
+    """One line saying where the implied vols came from and how old they are."""
+    try:
+        rows = reference_repo.get_iv_provenance()
+    except Exception:
+        return                                   # never break the dashboard over a caption
+    if not rows:
+        st.caption(f"Implied vol: no snapshot rows - positions fall back to "
+                   f"{reference_repo.DEFAULT_IV:.0f}%.")
+        return
+
+    in_book = {canonical_contract_key(p.label) for p in positions}
+    summary = summarize_iv_provenance(rows, in_book, datetime.now())
+    if summary["caption"]:
+        st.caption(summary["caption"])
+    if summary["warning"]:
+        st.warning(summary["warning"], icon=":material/warning:")
+    if summary["behind"]:
+        st.caption(f"Older than the rest, and in your book: {', '.join(summary['behind'])}")
