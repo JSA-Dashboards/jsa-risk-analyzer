@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at
-from jsa_risk.pricing.stress import Position, PositionEval, StressState, days_to_expiry, eval_position
+from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
 PRICE_SHOCKS = [-0.50, -0.40, -0.30, -0.20, -0.10, 0.0, 0.10, 0.20, 0.30, 0.40, 0.50]
 VOL_SHOCKS_BOTTOM_UP = [-30, -15, 0, 15, 30]  # last item renders at the top of the heatmap
@@ -155,20 +155,28 @@ def render_payoff_chart(
     xs = _frange(-range_, range_, 0.10)
     x_cents = [round(s * 100) for s in xs]
 
-    dtes = [days_to_expiry(p.expiry_date, today) for p in positions]
-    dtes = [d for d in dtes if d is not None and d > 0]
-    nearest_dte = min(dtes) if dtes else None
+    # One expiry date per distinct expiration among current option positions -- not just
+    # the nearest -- so a book with staggered expiries shows every real decay cliff.
+    expiry_dates = sorted({p.expiry_date for p in positions if p.expiry_date is not None})
+    today_ = today or date.today()
+    expiry_dtes = [(d, (d - today_).days) for d in expiry_dates]
+    expiry_dtes = [(d, dte) for d, dte in expiry_dtes if dte > 0]
 
     horizons = [
         {"label": "Today", "days": 0, "dash": None, "width": 2.5, "opacity": 1.0, "color": ACCENT},
         {"label": "+7d", "days": 7, "dash": "dash", "width": 1.5, "opacity": 0.7, "color": ACCENT},
         {"label": "+30d", "days": 30, "dash": "dot", "width": 1.5, "opacity": 0.45, "color": ACCENT},
     ]
-    if nearest_dte is not None:
-        horizons.append(
-            {"label": f"At expiry ({nearest_dte}d)", "days": nearest_dte, "dash": "dashdot",
-             "width": 1.5, "opacity": 0.9, "color": MUTED}
-        )
+    expiry_dash_cycle = ["dashdot", "longdash", "longdashdot", "dot"]
+    for i, (expiry_date, dte) in enumerate(expiry_dtes):
+        horizons.append({
+            "label": f"{expiry_date.strftime('%b')} {expiry_date.day} ({dte}d)",
+            "days": dte,
+            "dash": expiry_dash_cycle[i % len(expiry_dash_cycle)],
+            "width": 1.5,
+            "opacity": max(0.9 - i * 0.12, 0.4),
+            "color": MUTED,
+        })
     for h in horizons:
         h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today) for s in xs]
 

@@ -39,7 +39,6 @@ def build_blotter_dataframe(
             "Vega $": round(r.vega_d),
             "Theta $/d": round(r.theta_d),
             "P&L": round(r.pnl),
-            "Gain since import": round(r.import_gain),
             "Delete": False,
         })
     return pd.DataFrame(rows)
@@ -49,16 +48,16 @@ _COMPUTED_COLUMN_CONFIG = {
     "Strike": st.column_config.NumberColumn(format="$%.2f"),
     "Entry": st.column_config.NumberColumn(format="$%.4f"),
     "Mark": st.column_config.NumberColumn(format="$%.4f"),
-    "Gamma $": st.column_config.NumberColumn(format="$%d"),
-    "Vega $": st.column_config.NumberColumn(format="$%d"),
-    "Theta $/d": st.column_config.NumberColumn(format="$%d"),
-    "P&L": st.column_config.NumberColumn(format="$%d"),
-    "Gain since import": st.column_config.NumberColumn(format="$%d"),
+    "Delta (bu)": st.column_config.NumberColumn(format="%,d"),
+    "Gamma $": st.column_config.NumberColumn(format="$%,d"),
+    "Vega $": st.column_config.NumberColumn(format="$%,d"),
+    "Theta $/d": st.column_config.NumberColumn(format="$%,d"),
+    "P&L": st.column_config.NumberColumn(format="$%,d"),
 }
 
 GAIN_COLOR = "#3a9d5d"
 LOSS_COLOR = "#c0392b"
-_SIGNED_COLUMNS = ["Delta (bu)", "Gamma $", "Vega $", "Theta $/d", "P&L", "Gain since import"]
+_SIGNED_COLUMNS = ["Delta (bu)", "Gamma $", "Vega $", "Theta $/d", "P&L"]
 
 
 def _sign_style(v) -> str:
@@ -127,21 +126,3 @@ def render_editable_blotter(
         st.rerun()
     elif wrote_any:
         st.rerun()
-
-
-def render_import_gain_summary(
-    positions: List[Position],
-    stress: StressState,
-    get_contract_price: Callable[[str], float],
-) -> None:
-    evals = [eval_position(p, stress, get_contract_price) for p in positions]
-    total_gain = sum(e.import_gain for e in evals)
-    sign = "-" if total_gain < 0 else ""
-    st.markdown(
-        f"**Gain / loss since import**  \n"
-        f"### {sign}${abs(total_gain):,.0f}\n"
-        f"<span style='font-size:11.5px;color:#898781'>Vs. the Mark each position was imported "
-        f"(or added) with — not vs. entry cost. This is the open-position mark-to-market move "
-        f"since your last import.</span>",
-        unsafe_allow_html=True,
-    )

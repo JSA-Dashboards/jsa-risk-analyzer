@@ -21,15 +21,9 @@ def _sign_color(v: float) -> str:
 
 def _fmt_bu_signed(v: float) -> str:
     """Just the signed number, no LONG/SHORT wording — a minus sign for short, nothing
-    (no plus) for long/flat."""
-    av = abs(v)
-    if av >= 1e6:
-        s = f"{av / 1e6:.2f}M bu"
-    elif av >= 1e3:
-        s = f"{av / 1e3:.1f}K bu"
-    else:
-        s = f"{av:.0f} bu"
-    return f"-{s}" if v < 0 else s
+    (no plus) for long/flat. Comma-grouped, no decimal places, no K/M abbreviation."""
+    sign = "-" if v < 0 else ""
+    return f"{sign}{abs(v):,.0f} bu"
 
 
 def _fmt_dollars(v: float) -> str:

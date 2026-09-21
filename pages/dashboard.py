@@ -1,7 +1,7 @@
 import streamlit as st
 
 from jsa_risk.state import get_contract_price, visible_positions
-from jsa_risk.ui.blotter import render_editable_blotter, render_import_gain_summary
+from jsa_risk.ui.blotter import render_editable_blotter
 from jsa_risk.ui.charts import (
     render_delta_scenario,
     render_greeks_bars,
@@ -45,8 +45,6 @@ st.markdown("---")
 
 st.markdown("###### Position blotter")
 st.caption("This book is private to your browser session — Qty and Entry are editable; check Delete to remove a row.")
-render_import_gain_summary(positions, stress, get_contract_price)
-st.write("")
 render_editable_blotter(positions, stress, get_contract_price)
 
 st.markdown("---")

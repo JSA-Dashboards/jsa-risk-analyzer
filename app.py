@@ -5,10 +5,13 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
+from jsa_risk.auth import require_password
 from jsa_risk.state import init_session_state
 from jsa_risk.ui.theme import render_header_and_disclaimer
 
 st.set_page_config(page_title="JSA Risk Analyzer", page_icon="🌽", layout="wide")
+
+require_password()
 
 init_session_state()
 render_header_and_disclaimer()
