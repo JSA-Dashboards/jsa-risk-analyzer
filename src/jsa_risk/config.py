@@ -37,6 +37,16 @@ class CmeGreeksConfig:
     token_url: str
 
 
+@dataclass(frozen=True)
+class CmeDataMineConfig:
+    """CME DataMine end-of-day files. Same OAuth token endpoint as the Greeks API, but a
+    different API ID (one whose Role is "DataMine API (OAuth)") and a different host."""
+    api_id: str
+    password: str
+    base_url: str
+    token_url: str
+
+
 def _section(name: str, friendly_name: str) -> dict:
     if name not in st.secrets:
         raise ConfigError(
@@ -83,3 +93,23 @@ def get_cme_config() -> Optional[CmeGreeksConfig]:
         base_url=s.get("base_url", "https://markets.api.cmegroup.com/greeks/v1"),
         token_url=s.get("token_url", "https://auth.cmegroup.com/as/token.oauth2"),
     )
+
+
+DATAMINE_BASE_URL = "https://datamine.new.cmegroup.com/cme/api/v2"
+CME_TOKEN_URL = "https://auth.cmegroup.com/as/token.oauth2"
+
+
+def cme_datamine_config_from_dict(s) -> CmeDataMineConfig:
+    """Build from any mapping — st.secrets in the app, a tomllib dict in scripts."""
+    return CmeDataMineConfig(
+        api_id=s["api_id"], password=s["password"],
+        base_url=s.get("base_url", DATAMINE_BASE_URL),
+        token_url=s.get("token_url", CME_TOKEN_URL),
+    )
+
+
+def get_cme_datamine_config() -> Optional[CmeDataMineConfig]:
+    """None (not an error) when unconfigured, matching get_cme_config."""
+    if "cme_datamine" not in st.secrets:
+        return None
+    return cme_datamine_config_from_dict(st.secrets["cme_datamine"])
