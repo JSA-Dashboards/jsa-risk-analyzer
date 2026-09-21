@@ -40,9 +40,16 @@ QST_BASIC_CORN_MAPPING = {
 }
 
 
-def load_private_key_der(path: str) -> bytes:
-    with open(path, "rb") as f:
-        key = serialization.load_pem_private_key(f.read(), password=None)
+def _load_private_key(sf_cfg) -> bytes | None:
+    """RSA private key for Snowflake key-pair auth (the account enforces MFA on
+    password sign-ins), as DER bytes; None if not configured (falls back to password).
+    Source: private_key_path (.p8 file) or private_key_pem (PEM text)."""
+    path = sf_cfg.get("private_key_path")
+    pem = sf_cfg.get("private_key_pem")
+    if not path and not pem:
+        return None
+    pem_bytes = open(path, "rb").read() if path else pem.encode()
+    key = serialization.load_pem_private_key(pem_bytes, password=None)
     return key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
@@ -54,11 +61,17 @@ def main() -> int:
     with open(SECRETS_PATH, "rb") as f:
         sf_cfg = tomllib.load(f)["snowflake"]
 
+    kw = {}
+    pkey = _load_private_key(sf_cfg)
+    if pkey is not None:
+        kw["private_key"] = pkey
+    else:
+        kw["password"] = sf_cfg["password"]
     conn = snowflake.connector.connect(
         account=sf_cfg["account"], user=sf_cfg["user"],
-        private_key=load_private_key_der(sf_cfg["private_key_path"]),
         role=sf_cfg["role"], warehouse=sf_cfg["warehouse"],
         database=sf_cfg["database"], schema=sf_cfg["schema"],
+        **kw,
     )
     cur = conn.cursor()
 
