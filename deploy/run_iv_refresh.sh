@@ -13,9 +13,12 @@
 #   18:00 run -> the PREVIOUS trade date's Final (today's Preliminary isn't out yet)
 #   22:15 run -> today's Preliminary
 #   10:15 run -> the previous trade date's Final
-# A single 18:00 job therefore keeps vols one trade date behind. That is a deliberate
-# trade-off for a settled, final number; add a 22:15 job if same-day vol matters more.
-# The MERGE refuses to go backwards, so the two can coexist in any order.
+# Two jobs are installed, and they complement each other:
+#   22:15 — today's Preliminary, so the dashboard has same-day vol overnight
+#   18:00 — the previous trade date's Final, which supersedes that Preliminary
+# The MERGE refuses to move a row backwards, so order never matters and a late file
+# simply leaves the row as it was. If CME is running behind at 22:15 the run falls back
+# to the newest posted file and rewrites the same values harmlessly.
 #
 # flock prevents overlapping runs. Cron installs this; adjust APP_DIR if deployed elsewhere.
 set -uo pipefail
