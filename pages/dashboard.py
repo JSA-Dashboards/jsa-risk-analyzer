@@ -15,7 +15,9 @@ from jsa_risk.ui.market_strip import (
     render_massive_refresh,
 )
 
-flash = st.session_state.pop("_flash_added", None)
+flash_added = st.session_state.pop("_flash_added", None)
+flash_market = st.session_state.pop("_flash_market_update", None)
+flash = flash_added or flash_market
 if flash:
     st.success(flash)
 

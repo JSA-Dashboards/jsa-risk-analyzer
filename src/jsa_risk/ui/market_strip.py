@@ -82,7 +82,14 @@ def render_massive_refresh(positions: List[Position]) -> None:
                         else (f" ({result.timeframe.lower()})" if result.timeframe else "")
                     )
                     updated_str = ", ".join(f"{k} ${v:.4f}" for k, v in result.updated.items())
-                    msg_col.success(f"Updated {len(result.updated)} contract price(s) from Massive{delay_note}: {updated_str}.")
+                    # Rerun so the KPIs/Greeks/charts above this section (already rendered
+                    # earlier in this same script pass, off the pre-update cached prices)
+                    # pick up the fresh marks too -- stash the message since a message shown
+                    # right before rerun() never reaches the user.
+                    st.session_state["_flash_market_update"] = (
+                        f"Updated {len(result.updated)} contract price(s) from Massive{delay_note}: {updated_str}."
+                    )
+                    st.rerun()
                 else:
                     msg_col.warning("No matching contracts returned from Massive.")
     st.caption("Massive futures prices are delayed ~10 minutes — not a real-time or executable quote.")
