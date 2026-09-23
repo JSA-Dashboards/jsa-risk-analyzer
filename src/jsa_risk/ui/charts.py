@@ -50,19 +50,29 @@ def render_pnl_heatmap(
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
 ) -> None:
+    # Purely numeric x/y (0,1,2,...) with cosmetic tick labels via update_xaxes/yaxes,
+    # rather than handing the Heatmap trace the label strings directly. Plotly's implicit
+    # category-axis positioning turned out unreliable for a second overlaid trace: both a
+    # go.Shape rect and a numeric-coordinate scatter line, tried in turn to outline the
+    # current-scenario cell, landed off-axis (Plotly silently extended the axis with new
+    # tick positions instead of aligning to the heatmap's categories). Numeric coordinates
+    # end that ambiguity -- the heatmap and the highlight now share one unambiguous grid.
     price_labels = [_fmt_cents(p) for p in PRICE_SHOCKS]
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
+    x_idx = list(range(len(PRICE_SHOCKS)))
+    y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
     z = [
         [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today) for ps in PRICE_SHOCKS]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
     text = [[_fmt_dollars_signed(v) for v in row] for row in z]
+    customdata = [[[price_labels[j], vol_labels[i]] for j in x_idx] for i in y_idx]
 
     fig = go.Figure(
         go.Heatmap(
-            x=price_labels,
-            y=vol_labels,
+            x=x_idx,
+            y=y_idx,
             z=z,
             colorscale="RdYlGn",
             zmid=0,
@@ -71,28 +81,32 @@ def render_pnl_heatmap(
             text=text,
             texttemplate="%{text}",
             textfont={"size": 11},
-            hovertemplate="Price %{x} · Vol %{y}<br>Book P&L: %{text}<extra></extra>",
+            customdata=customdata,
+            hovertemplate="Price %{customdata[0]} · Vol %{customdata[1]}<br>Book P&L: %{text}<extra></extra>",
             showscale=False,
         )
     )
-    # Outline the current-scenario cell with a shape sized to its actual category-axis
-    # index (0-5px, +/-0.5 either side) rather than a fixed-pixel marker -- a marker sized
-    # in pixels doesn't track the cell's real rendered size and can cross over its text.
-    base_price_idx = price_labels.index(_fmt_cents(0.0))
-    base_vol_idx = vol_labels.index(_fmt_pct_signed(0))
-    fig.add_shape(
-        type="rect",
-        xref="x", yref="y",
-        x0=base_price_idx - 0.5, x1=base_price_idx + 0.5,
-        y0=base_vol_idx - 0.5, y1=base_vol_idx + 0.5,
-        line=dict(color=ACCENT, width=3),
-        fillcolor="rgba(0,0,0,0)",
+    # Outline the current-scenario (0 price, 0 vol) cell -- a closed line path at
+    # +/-0.5 index either side of its center, tracing exactly the cell's own boundary.
+    base_price_idx = PRICE_SHOCKS.index(0.0)
+    base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
+    px0, px1 = base_price_idx - 0.5, base_price_idx + 0.5
+    py0, py1 = base_vol_idx - 0.5, base_vol_idx + 0.5
+    fig.add_trace(
+        go.Scatter(
+            x=[px0, px1, px1, px0, px0],
+            y=[py0, py0, py1, py1, py0],
+            mode="lines",
+            line=dict(color=ACCENT, width=3),
+            hoverinfo="skip",
+            showlegend=False,
+        )
     )
     fig.update_layout(
         height=300,
         margin=dict(l=10, r=10, t=10, b=10),
-        xaxis_title="Price shock →",
-        yaxis_title="Vol shock ↑",
+        xaxis=dict(title="Price shock →", tickvals=x_idx, ticktext=price_labels),
+        yaxis=dict(title="Vol shock ↑", tickvals=y_idx, ticktext=vol_labels),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=11),
