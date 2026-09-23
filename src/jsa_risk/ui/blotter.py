@@ -99,6 +99,7 @@ def render_editable_blotter(
         hide_index=True,
         use_container_width=True,
         key=editor_key,
+        height="content",  # fit every row -- the page scrolls, not a scrollbar inside the grid
         disabled=[c for c in df.columns if c not in ("Qty", "Entry", "Delete")],
         column_config={**_COMPUTED_COLUMN_CONFIG, "id": None},
     )

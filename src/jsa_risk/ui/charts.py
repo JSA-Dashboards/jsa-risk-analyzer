@@ -75,16 +75,18 @@ def render_pnl_heatmap(
             showscale=False,
         )
     )
-    base_price_label, base_vol_label = _fmt_cents(0.0), _fmt_pct_signed(0)
-    fig.add_trace(
-        go.Scatter(
-            x=[base_price_label],
-            y=[base_vol_label],
-            mode="markers",
-            marker=dict(size=34, color="rgba(0,0,0,0)", line=dict(color=ACCENT, width=3), symbol="square"),
-            hoverinfo="skip",
-            showlegend=False,
-        )
+    # Outline the current-scenario cell with a shape sized to its actual category-axis
+    # index (0-5px, +/-0.5 either side) rather than a fixed-pixel marker -- a marker sized
+    # in pixels doesn't track the cell's real rendered size and can cross over its text.
+    base_price_idx = price_labels.index(_fmt_cents(0.0))
+    base_vol_idx = vol_labels.index(_fmt_pct_signed(0))
+    fig.add_shape(
+        type="rect",
+        xref="x", yref="y",
+        x0=base_price_idx - 0.5, x1=base_price_idx + 0.5,
+        y0=base_vol_idx - 0.5, y1=base_vol_idx + 0.5,
+        line=dict(color=ACCENT, width=3),
+        fillcolor="rgba(0,0,0,0)",
     )
     fig.update_layout(
         height=300,
@@ -154,8 +156,11 @@ def render_payoff_chart(
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
 ) -> None:
-    range_ = 0.50
-    xs = _frange(-range_, range_, 0.10)
+    # Compute well past the default view so zooming/panning out reveals a real, continuing
+    # curve instead of hitting blank space at the edge of what used to be the only data.
+    compute_range = 1.50
+    default_view = 0.50
+    xs = _frange(-compute_range, compute_range, 0.10)
     x_cents = [round(s * 100) for s in xs]
 
     # One expiry date per distinct expiration among current option positions -- not just
@@ -181,6 +186,15 @@ def render_payoff_chart(
         h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today) for s in xs]
 
     cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today)
+
+    # Fit the initial Y-range to just the default-visible window's values, not the whole
+    # (much wider) computed dataset -- otherwise the visible curve gets squashed into a
+    # sliver by extremes that only occur far outside the default zoom.
+    visible_ys = [
+        y for h in horizons for x, y in zip(x_cents, h["ys"]) if abs(x) <= default_view * 100
+    ]
+    y_lo, y_hi = min(visible_ys), max(visible_ys)
+    y_pad = max((y_hi - y_lo) * 0.1, 1.0)
 
     fig = go.Figure()
     today_h = horizons[0]
@@ -210,8 +224,9 @@ def render_payoff_chart(
     fig.update_layout(
         hovermode="x unified",
         xaxis_title="Price shock (¢)",
+        xaxis=dict(range=[-default_view * 100, default_view * 100]),
         yaxis_title="Book P&L ($)",
-        yaxis=dict(tickprefix="$", separatethousands=True),
+        yaxis=dict(tickprefix="$", separatethousands=True, range=[y_lo - y_pad, y_hi + y_pad]),
         height=520,
         margin=dict(l=10, r=10, t=10, b=10),
         plot_bgcolor="rgba(0,0,0,0)",
