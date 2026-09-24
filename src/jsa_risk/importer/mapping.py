@@ -30,6 +30,24 @@ IMPORT_TARGETS: List[ImportTarget] = [
 ]
 
 
+# Hardcoded so it's always available, regardless of whether IMPORT_PRESETS has been
+# seeded in Snowflake -- matches the real QST "Orders and Positions Summary" export
+# (Instrument/Call-Put/Strike/Expiration Date/Qty/Position/Price/Last Tick), not the
+# sample-sheet placeholder names ("Symbol"/"Lots"/"Premium") the DB-seeded preset had
+# been carrying by mistake.
+QST_DEFAULT_MAPPING = {
+    "label": "Instrument",
+    "type": "Call/Put",
+    "strike": "Strike",
+    "expiryDate": "Expiration Date",
+    "qty": "Qty",
+    "positionDir": "Position",
+    "iv": None,
+    "entry": "Price",
+    "lastTick": "Last Tick",
+}
+
+
 def match_header_idx(header_name: Optional[str], headers: List[str]) -> int:
     if not header_name:
         return -1

@@ -34,9 +34,12 @@ PRIOR_SETTLE_OPTIONS = [
 PRIOR_SETTLE_AS_OF = "2026-08-17"
 PRIOR_SETTLE_SOURCE = "CME Group settlements"
 
+# Matches the real QST "Orders and Positions Summary" export -- this previously carried
+# the sample-sheet's placeholder column names ("Symbol"/"Lots"/"Premium"), which never
+# matched any real export and silently fell through to auto_map's generic guessing.
 QST_BASIC_CORN_MAPPING = {
-    "label": "Symbol", "type": "Type", "strike": "Strike", "expiryDate": "Expiration",
-    "qty": "Lots", "positionDir": None, "iv": None, "entry": "Premium", "lastTick": "Last Tick",
+    "label": "Instrument", "type": "Call/Put", "strike": "Strike", "expiryDate": "Expiration Date",
+    "qty": "Qty", "positionDir": "Position", "iv": None, "entry": "Price", "lastTick": "Last Tick",
 }
 
 

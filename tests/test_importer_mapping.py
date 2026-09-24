@@ -1,4 +1,4 @@
-from jsa_risk.importer.mapping import auto_map, match_header_idx
+from jsa_risk.importer.mapping import QST_DEFAULT_MAPPING, auto_map, match_header_idx
 
 
 def test_simple_sheet_maps_by_loose_guess():
@@ -30,6 +30,24 @@ def test_a_saved_preset_wins_over_the_generic_guess():
     remembered = {"label": "Weird Col B"}
     mapping = auto_map(headers, remembered=remembered)
     assert headers[mapping["label"]] == "Weird Col B"
+
+
+def test_qst_default_mapping_resolves_against_the_real_qst_export_headers():
+    """QST_DEFAULT_MAPPING is the guaranteed-available fallback (code, not a Snowflake row)
+    used when neither a saved default preset nor a last-used mapping exists -- it must
+    resolve against the real QST "Orders and Positions Summary" export headers, not the
+    sample-sheet's placeholder names."""
+    headers = ["Instrument", "Call/Put", "Strike", "Expiration Date", "Qty", "Position", "Price", "Last Tick"]
+    mapping = auto_map(headers, remembered=QST_DEFAULT_MAPPING)
+    assert headers[mapping["label"]] == "Instrument"
+    assert headers[mapping["type"]] == "Call/Put"
+    assert headers[mapping["strike"]] == "Strike"
+    assert headers[mapping["expiryDate"]] == "Expiration Date"
+    assert headers[mapping["qty"]] == "Qty"
+    assert headers[mapping["positionDir"]] == "Position"
+    assert headers[mapping["entry"]] == "Price"
+    assert headers[mapping["lastTick"]] == "Last Tick"
+    assert mapping["iv"] == -1
 
 
 def test_match_header_idx_is_case_insensitive_and_exact():

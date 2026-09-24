@@ -6,7 +6,7 @@ import streamlit as st
 from jsa_risk import state
 from jsa_risk.data import presets_repo, reference_repo
 from jsa_risk.importer.commit import positions_from_staging
-from jsa_risk.importer.mapping import IMPORT_TARGETS, auto_map, mapping_to_header_names
+from jsa_risk.importer.mapping import IMPORT_TARGETS, QST_DEFAULT_MAPPING, auto_map, mapping_to_header_names
 from jsa_risk.importer.parsing import parse_pasted_text
 from jsa_risk.importer.staging import build_staging_row, staging_row_valid
 from jsa_risk.pricing.symbols import canonical_contract_key
@@ -69,7 +69,7 @@ if parse_clicked:
     headers, rows = parse_pasted_text(st.session_state.import_paste_text, has_header)
     st.session_state.import_headers = headers
     st.session_state.import_rows = rows
-    remembered = presets_repo.get_default_preset() or presets_repo.get_last_used_mapping()
+    remembered = presets_repo.get_default_preset() or presets_repo.get_last_used_mapping() or QST_DEFAULT_MAPPING
     st.session_state.import_mapping = auto_map(headers, remembered)
     st.session_state.pop("import_staging", None)
     st.success(f"Parsed {len(rows)} row(s), {len(headers)} column(s). Map the columns below.")
@@ -83,7 +83,11 @@ if "import_headers" in st.session_state:
     preset_col, save_col = st.columns([2, 2])
     with preset_col:
         chosen_preset = st.selectbox("Load a saved preset", ["— none —"] + list(presets.keys()))
-        if chosen_preset != "— none —" and st.button("Apply preset"):
+        # The button must always be instantiated -- `if cond and st.button(...)` only
+        # calls st.button() when cond is true, and Streamlit can't reliably track a
+        # widget's click across reruns if it isn't instantiated every run.
+        apply_clicked = st.button("Apply preset", disabled=chosen_preset == "— none —")
+        if apply_clicked and chosen_preset != "— none —":
             st.session_state.import_mapping = {
                 t.key: headers.index(presets[chosen_preset][t.key]) if presets[chosen_preset].get(t.key) in headers else -1
                 for t in IMPORT_TARGETS
