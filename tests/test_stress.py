@@ -2,7 +2,13 @@ from datetime import date
 
 import pytest
 
-from jsa_risk.pricing.stress import Position, StressState, eval_position
+from jsa_risk.pricing.stress import (
+    Position,
+    StressState,
+    effective_underlying_display,
+    effective_underlying_key,
+    eval_position,
+)
 
 TODAY = date(2026, 1, 1)
 
@@ -88,3 +94,38 @@ class TestOptions:
         r = eval_position(p, stress, price_book, today=TODAY)
         assert r.price != 0.05
         assert r.price == r.model_price
+
+
+class TestEffectiveUnderlying:
+    def test_no_override_falls_back_to_the_auto_derived_key_from_the_label(self):
+        p = make_future()  # label="ZCZ26", no override
+        assert effective_underlying_key(p, today=TODAY) == "Z26"
+
+    def test_override_takes_precedence_over_the_label_entirely(self):
+        p = Position(id=3, label="ZCZ26", type="future", qty=1, entry=5.0, underlying_override="u26")
+        assert effective_underlying_key(p, today=TODAY) == "U26"
+
+    def test_override_is_used_for_pricing_not_just_display(self):
+        p = Position(
+            id=4, label="ZCZ26", type="future", qty=10, entry=5.10, underlying_override="U26",
+        )
+        r = eval_position(p, StressState(), price_book, today=TODAY)
+        assert r.price == price_book("U26")
+
+    def test_display_without_override_matches_contract_display_name(self):
+        p = make_future()
+        assert effective_underlying_display(p, today=TODAY) == "Dec '26"
+
+    def test_display_with_override_is_tagged(self):
+        p = Position(id=5, label="ZCZ26", type="future", qty=1, entry=5.0, underlying_override="U26")
+        assert effective_underlying_display(p, today=TODAY) == "Sep '26 (override)"
+
+    def test_display_with_override_does_not_re_roll_even_after_that_contract_expired(self):
+        # If the override itself names a contract whose own month has since begun, the
+        # display must still say exactly what it's pricing against -- not silently roll
+        # it forward again, which would misrepresent what underlying_override actually
+        # pins pricing to (see effective_underlying_key: it's used literally).
+        today_after_sep_roll = date(2026, 9, 24)
+        p = Position(id=6, label="ZCZ26", type="future", qty=1, entry=5.0, underlying_override="U26")
+        assert effective_underlying_display(p, today=today_after_sep_roll) == "Sep '26 (override)"
+        assert effective_underlying_key(p, today=today_after_sep_roll) == "U26"

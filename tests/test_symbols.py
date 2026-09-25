@@ -1,3 +1,5 @@
+from datetime import date
+
 from jsa_risk.pricing.symbols import (
     SERIAL_TO_QUARTERLY,
     canonical_contract_key,
@@ -48,3 +50,38 @@ def test_canonical_contract_key_falls_back_to_normalized_raw_label():
 def test_contract_display_name():
     assert contract_display_name("ZCZ26") == "Dec '26"
     assert contract_display_name("ZCV26") == "Dec '26 (via Oct option)"
+
+
+def test_quarterly_contract_does_not_roll_the_day_before_its_own_month_starts():
+    d = decode_contract_symbol("ZCU26", today=date(2026, 8, 31))
+    assert d.is_serial is False
+    assert d.underlying_key == "U26"
+
+
+def test_quarterly_contract_rolls_forward_on_the_first_of_its_own_month():
+    d = decode_contract_symbol("ZCU26", today=date(2026, 9, 1))
+    assert d.is_serial is True
+    assert d.underlying_key == "Z26"
+    assert d.underlying_month_name == "Dec"
+
+
+def test_a_serial_option_whose_target_has_since_rolled_cascades_forward_too():
+    # An October option nominally targets December -- if December has itself since
+    # rolled off (i.e. it's now Dec 1 or later), it should cascade to March next year.
+    d = decode_contract_symbol("ZCV26", today=date(2026, 12, 1))
+    assert d.underlying_key == "H27"
+    assert d.underlying_year2 == "27"
+
+
+def test_cascades_across_multiple_stale_quarterly_contracts_and_a_year_boundary():
+    # As of Mar 15 2027: U26 (Sep '26) is long expired -> rolls to Z26 -> that's also
+    # expired (past Dec 1 '26) -> rolls to H27 (Mar '27) -> Mar 1 '27 has also passed,
+    # so it keeps going to K27 (May '27), which hasn't started yet.
+    d = decode_contract_symbol("ZCU26", today=date(2027, 3, 15))
+    assert d.underlying_key == "K27"
+    assert d.underlying_month_name == "May"
+    assert d.underlying_year2 == "27"
+
+
+def test_contract_display_name_reflects_a_year_crossing_roll():
+    assert contract_display_name("ZCV26", today=date(2026, 12, 1)) == "Mar '27 (via Oct option)"

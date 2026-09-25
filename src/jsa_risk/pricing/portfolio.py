@@ -12,11 +12,11 @@ from .stress import (
     PositionEval,
     StressState,
     days_to_expiry,
+    effective_underlying_key,
     eval_position,
     stressed_future,
     stressed_sigma,
 )
-from .symbols import canonical_contract_key
 
 
 def portfolio_pnl_at(
@@ -30,7 +30,7 @@ def portfolio_pnl_at(
 ) -> float:
     total = 0.0
     for p in positions:
-        F = stressed_future(get_contract_price(canonical_contract_key(p.label)), base_stress) + price_shock_dollars
+        F = stressed_future(get_contract_price(effective_underlying_key(p, today)), base_stress) + price_shock_dollars
         if p.type == "future":
             sigma = 0.5
         else:
@@ -56,7 +56,7 @@ def portfolio_delta_at(
     `portfolio_pnl_at`)."""
     total = 0.0
     for p in positions:
-        F = stressed_future(get_contract_price(canonical_contract_key(p.label)), base_stress) + price_shock_dollars
+        F = stressed_future(get_contract_price(effective_underlying_key(p, today)), base_stress) + price_shock_dollars
         r = eval_position(p, base_stress, get_contract_price, F_override=F, today=today)
         total += r.delta_d
     return total

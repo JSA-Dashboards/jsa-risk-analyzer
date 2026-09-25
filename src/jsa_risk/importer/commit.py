@@ -3,7 +3,7 @@ commits them via positions_repo.replace_book — always replaces the whole book,
 the original tool.
 """
 from datetime import date
-from typing import Callable, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from jsa_risk.pricing.black76 import black76
 from jsa_risk.pricing.stress import Position
@@ -16,8 +16,14 @@ def positions_from_staging(
     get_contract_price: Callable[[str], float],
     snapshot_iv: Callable[[str], float],
     canonical_contract_key: Callable[[str], str],
+    underlying_overrides: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Position], int]:
-    """Returns (positions, estimated_iv_count)."""
+    """Returns (positions, estimated_iv_count). `underlying_overrides` maps a row's raw
+    label to a manually-chosen canonical underlying key (e.g. "Z26") -- set on the import
+    preview screen to fix one-off cases the automatic roll rule doesn't cover. Applied
+    both to this import's price/IV lookups and persisted onto the resulting Position, so
+    future re-pricing keeps respecting it."""
+    overrides = underlying_overrides or {}
     positions: List[Position] = []
     estimated_count = 0
 
@@ -25,7 +31,8 @@ def positions_from_staging(
         if not staging_row_valid(row):
             continue
         is_future = row.type == "future"
-        canonical_key = canonical_contract_key(row.label)
+        override = overrides.get(row.label) or None
+        canonical_key = override or canonical_contract_key(row.label)
         contract_f = get_contract_price(canonical_key)
 
         iv = row.iv
@@ -53,6 +60,7 @@ def positions_from_staging(
             expiry_date=None if is_future else row.expiry,
             qty=row.qty, iv=None if is_future else iv, iv_estimated=iv_estimated,
             entry=entry, last_tick=row.last_tick, import_mark=import_mark,
+            underlying_override=override,
         ))
 
     return positions, estimated_count

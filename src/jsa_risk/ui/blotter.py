@@ -7,8 +7,7 @@ from typing import Callable, List
 import pandas as pd
 import streamlit as st
 
-from jsa_risk.pricing.stress import Position, StressState, eval_position
-from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
+from jsa_risk.pricing.stress import Position, StressState, effective_underlying_display, eval_position
 
 
 def build_blotter_dataframe(
@@ -26,7 +25,7 @@ def build_blotter_dataframe(
         rows.append({
             "id": p.id,
             "Contract": p.label,
-            "Underlying": contract_display_name(p.label),
+            "Underlying": effective_underlying_display(p),
             "Type": p.type,
             "Strike": p.strike,
             "DTE (d)": dte,

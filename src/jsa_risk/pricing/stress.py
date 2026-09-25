@@ -19,7 +19,10 @@ CORN_DAILY_VOL = 0.016
 @dataclass(frozen=True)
 class Position:
     """A single book entry. `type` is 'call' | 'put' | 'future'; strike/expiry_date/iv
-    are None for futures. `qty` is signed (positive = long, negative = short)."""
+    are None for futures. `qty` is signed (positive = long, negative = short).
+    `underlying_override`, when set (a canonical key like "Z26"), takes precedence over
+    the underlying auto-derived from `label` -- a manual escape hatch for the cases the
+    date-based roll rule in symbols.py doesn't (or shouldn't) cover on its own."""
     id: int
     label: str
     type: str
@@ -31,6 +34,28 @@ class Position:
     iv_estimated: bool = False
     last_tick: Optional[float] = None
     import_mark: Optional[float] = None
+    underlying_override: Optional[str] = None
+
+
+def effective_underlying_key(position: Position, today: Optional[date] = None) -> str:
+    if position.underlying_override:
+        return position.underlying_override.strip().upper()
+    from .symbols import canonical_contract_key  # local import avoids a circular dependency
+    return canonical_contract_key(position.label, today)
+
+
+def effective_underlying_display(position: Position, today: Optional[date] = None) -> str:
+    """Same display convention as contract_display_name, but reflects a manual
+    underlying_override when set, tagged "(override)". The override names its target
+    contract directly (it's already a canonical key, not an option symbol to decode), so
+    it's formatted as-is via format_canonical_key rather than re-run through the
+    date-based roll logic -- otherwise a stale-looking override (e.g. "U26" set after
+    Sep 1) would display as if it had rolled forward again, contradicting the literal
+    contract it's actually being priced against."""
+    from .symbols import contract_display_name, format_canonical_key
+    if position.underlying_override:
+        return f"{format_canonical_key(position.underlying_override)} (override)"
+    return contract_display_name(position.label, today)
 
 
 @dataclass
@@ -87,13 +112,11 @@ def eval_position(
     T_override: Optional[float] = None,
     today: Optional[date] = None,
 ) -> PositionEval:
-    from .symbols import canonical_contract_key  # local import avoids a circular dependency
-
     no_stress = stress.is_neutral
     has_tick = position.last_tick is not None
     use_last_tick = (F_override is None) and no_stress and has_tick
 
-    canonical_key = canonical_contract_key(position.label)
+    canonical_key = effective_underlying_key(position, today)
     F = F_override if F_override is not None else stressed_future(get_contract_price(canonical_key), stress)
     pos_mult = position.qty * CORN_MULT
     import_basis = position.import_mark if position.import_mark is not None else position.entry

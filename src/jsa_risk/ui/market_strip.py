@@ -3,40 +3,40 @@
 automatically when Massive is configured.
 """
 from datetime import datetime
-from typing import List
+from typing import List, Tuple
 
 import streamlit as st
 
 from jsa_risk.data import audit_repo, reference_repo
-from jsa_risk.pricing.stress import Position
-from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
+from jsa_risk.pricing.stress import Position, effective_underlying_display, effective_underlying_key
 
 
-def _distinct_contract_labels(positions: List[Position]) -> List[str]:
-    """Dedupes by the *canonical* underlying (so an Oct option and its Dec future collapse
-    into one card) but keeps a representative raw label per group, so the card can still
-    show a proper decoded name."""
+def _distinct_contract_groups(positions: List[Position]) -> List[Tuple[str, Position]]:
+    """Dedupes by each position's *effective* underlying (its underlying_override if set,
+    else the auto-derived one) -- so an Oct option and its Dec future collapse into one
+    card, and an overridden position collapses into whatever it was overridden to, not
+    whatever its symbol alone would auto-resolve to. Keeps a representative Position per
+    group so the card can still show a proper decoded (and override-aware) name."""
     seen = set()
-    order: List[str] = []
+    groups: List[Tuple[str, Position]] = []
     for p in positions:
-        key = canonical_contract_key(p.label)
+        key = effective_underlying_key(p)
         if key not in seen:
             seen.add(key)
-            order.append(p.label)
-    return order
+            groups.append((key, p))
+    return groups
 
 
 def render_market_strip(positions: List[Position]) -> None:
-    labels = _distinct_contract_labels(positions)
-    if not labels:
+    groups = _distinct_contract_groups(positions)
+    if not groups:
         st.caption("No contracts in the book to price.")
         return
 
     marks = reference_repo.get_contract_marks()
-    cols = st.columns(min(len(labels), 4))
-    for i, raw_label in enumerate(labels):
-        key = canonical_contract_key(raw_label)
-        display_name = contract_display_name(raw_label) if raw_label else "Corn futures (unlabeled)"
+    cols = st.columns(min(len(groups), 4))
+    for i, (key, rep_position) in enumerate(groups):
+        display_name = effective_underlying_display(rep_position) if rep_position.label else "Corn futures (unlabeled)"
         widget_key = f"mkt_price_{key}"
         if widget_key not in st.session_state:
             current = marks.get(key)
@@ -57,7 +57,7 @@ def render_massive_refresh(positions: List[Position]) -> None:
     from jsa_risk.integrations import massive_client
 
     config = get_massive_config()
-    canon_keys = sorted({canonical_contract_key(p.label) for p in positions})
+    canon_keys = sorted({effective_underlying_key(p) for p in positions})
 
     btn_col, msg_col = st.columns([1, 4])
     clicked = btn_col.button("↻ Update prices from Massive", disabled=config is None)
@@ -149,7 +149,7 @@ def render_iv_provenance(positions: List[Position]) -> None:
                    f"{reference_repo.DEFAULT_IV:.0f}%.")
         return
 
-    in_book = {canonical_contract_key(p.label) for p in positions}
+    in_book = {effective_underlying_key(p) for p in positions}
     summary = summarize_iv_provenance(rows, in_book, datetime.now())
     if summary["caption"]:
         st.caption(summary["caption"])

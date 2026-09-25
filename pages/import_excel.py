@@ -1,3 +1,4 @@
+import re
 from datetime import date, timedelta
 
 import pandas as pd
@@ -9,7 +10,9 @@ from jsa_risk.importer.commit import positions_from_staging
 from jsa_risk.importer.mapping import IMPORT_TARGETS, QST_DEFAULT_MAPPING, auto_map, mapping_to_header_names
 from jsa_risk.importer.parsing import parse_pasted_text
 from jsa_risk.importer.staging import build_staging_row, staging_row_valid
-from jsa_risk.pricing.symbols import canonical_contract_key
+from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
+
+_OVERRIDE_RE = re.compile(r"^[A-Z]\d{2}$")
 
 st.markdown("###### Getting this from QST")
 st.info(
@@ -131,15 +134,50 @@ if "import_staging" in st.session_state:
     valid_count = sum(1 for r in staging if staging_row_valid(r))
     st.caption(f"{valid_count} of {len(staging)} row(s) are ready to import.")
 
+    st.markdown("###### Adjust underlying futures contracts (optional)")
+    st.caption(
+        "Auto-derived per symbol — serial months roll to the next quarterly future, and a "
+        "quarterly month itself rolls forward once its own contract month begins (e.g. "
+        "September options price off December starting Sep 1). Override only the one-offs "
+        "that still need fixing, using a canonical key like Z26 for December '26."
+    )
+    distinct_labels = sorted({r.label for r in staging if r.label})
+    prior_overrides = st.session_state.get("import_underlying_overrides", {})
+    override_df = pd.DataFrame([{
+        "Symbol": label,
+        "Auto underlying": contract_display_name(label),
+        "Override (blank = auto)": prior_overrides.get(label, ""),
+    } for label in distinct_labels])
+    edited_overrides = st.data_editor(
+        override_df, hide_index=True, use_container_width=True,
+        key="underlying_override_editor",
+        disabled=["Symbol", "Auto underlying"],
+    )
+    new_overrides = {}
+    bad_overrides = []
+    for _, row in edited_overrides.iterrows():
+        val = str(row["Override (blank = auto)"] or "").strip().upper()
+        if not val:
+            continue
+        if _OVERRIDE_RE.match(val):
+            new_overrides[row["Symbol"]] = val
+        else:
+            bad_overrides.append((row["Symbol"], val))
+    st.session_state.import_underlying_overrides = new_overrides
+    if bad_overrides:
+        bad_str = ", ".join(f'{sym}: "{val}"' for sym, val in bad_overrides)
+        st.warning(f'Ignoring invalid override(s) — use a month letter + 2-digit year, e.g. "Z26": {bad_str}')
+
     if st.button(f"Replace book with {valid_count} position(s)", type="primary", disabled=valid_count == 0):
         positions, estimated_count = positions_from_staging(
             staging,
             get_contract_price=reference_repo.get_contract_price,
             snapshot_iv=reference_repo.snapshot_iv,
             canonical_contract_key=canonical_contract_key,
+            underlying_overrides=new_overrides,
         )
         count = state.replace_book(positions)
-        for k in ["import_headers", "import_rows", "import_mapping", "import_staging"]:
+        for k in ["import_headers", "import_rows", "import_mapping", "import_staging", "import_underlying_overrides"]:
             st.session_state.pop(k, None)
         msg = f"Replaced your book with {count} position(s)."
         if estimated_count:
