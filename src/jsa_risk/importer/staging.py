@@ -61,19 +61,19 @@ def strip_label_suffix(label: str) -> str:
     return label[:idx] if idx >= 0 else label
 
 
+def label_commodity_code(label: Optional[str]) -> Optional[str]:
+    """The recognized 2-letter commodity code at the start of this label (e.g. "ZC" from
+    "ZCZ26"), or None when the prefix isn't a known code. An unusual-but-legitimate symbol
+    format is never treated as belonging to some *other* commodity -- it's only ever
+    excluded from an import when it's positively identified as one."""
+    prefix = (label or "").strip().upper()[:2]
+    return prefix if prefix in COMMODITIES else None
+
+
 def distinct_commodity_codes(labels: Iterable[str]) -> Set[str]:
-    """The set of recognized 2-letter commodity codes among these labels' own prefixes
-    (e.g. "ZC" from "ZCZ26") -- ignores any label that doesn't start with a known code,
-    so an unusual-but-legitimate symbol format never gets miscounted as a commodity of
-    its own. Used to catch a sheet that mixes contracts from more than one commodity, or
-    that belongs to a different commodity than the one currently selected, before it's
-    ever committed to the book."""
-    codes: Set[str] = set()
-    for label in labels:
-        prefix = (label or "").strip().upper()[:2]
-        if prefix in COMMODITIES:
-            codes.add(prefix)
-    return codes
+    """The set of recognized commodity codes among these labels' own prefixes -- e.g. to
+    tell the user exactly which other commodities were found (and skipped) in a sheet."""
+    return {code for code in (label_commodity_code(l) for l in labels) if code is not None}
 
 
 def looks_like_unit_mismatch(value: Optional[float], reference_price: float) -> bool:

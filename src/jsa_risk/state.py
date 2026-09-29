@@ -31,11 +31,15 @@ from jsa_risk.data import reference_repo
 from jsa_risk.pricing.commodities import CORN, CommoditySpec, get_commodity, reference_key
 from jsa_risk.pricing.stress import Position, StressState
 
-# session_state keys that hold data specific to whatever commodity was previously
-# selected -- cleared on every commodity switch so nothing from the old book/screen
-# lingers (e.g. a half-filled Import from Excel preview, or an Add Position draft).
-_TRANSIENT_KEYS = [
-    "add_pos_draft", "import_headers", "import_rows", "import_mapping",
+# session_state keys tied to whatever commodity was previously selected -- cleared on a
+# commodity switch made elsewhere (e.g. the sidebar) so nothing from the old book/screen
+# lingers. The import-wizard keys are kept separate: switching commodity *from the Import
+# screen's own picker* (see pages/import_excel.py) deliberately leaves these alone, since
+# the whole point there is to keep the pasted sheet and re-filter it under the newly
+# picked commodity, not force a re-paste.
+_ADD_POSITION_KEY = "add_pos_draft"
+_IMPORT_WIZARD_KEYS = [
+    "import_headers", "import_rows", "import_mapping",
     "import_staging", "import_underlying_overrides",
 ]
 
@@ -86,15 +90,32 @@ def get_commodity_spec() -> CommoditySpec:
     return get_commodity(st.session_state.get("commodity_code", CORN.code))
 
 
-def set_commodity(code: str) -> None:
+# Every selectbox that lets the user pick the active commodity, keyed by its own widget
+# key -- kept in sync here so that switching commodity from ANY one of them (e.g. the
+# Import screen's own picker) updates how the OTHERS display too (e.g. the sidebar),
+# rather than each independently-keyed widget clinging to its own last-set value and
+# fighting over which is "right" on the next rerun.
+_COMMODITY_WIDGET_KEYS = ["commodity_selector", "import_commodity_picker"]
+
+
+def set_commodity(code: str, clear_import_wizard: bool = True) -> None:
     """Switching commodities starts a fresh book -- a position priced against one
     commodity's contracts (different $ multiplier, different quoting unit) is meaningless
-    under another's, so there's no sensible way to carry the old book over."""
+    under another's, so there's no sensible way to carry the old book over.
+
+    `clear_import_wizard=False` is for the Import screen's own commodity picker: it
+    switches the commodity same as the sidebar does, but keeps whatever sheet is already
+    pasted/parsed/staged so it can just be re-filtered under the new commodity, instead of
+    forcing the user back to square one."""
     st.session_state.commodity_code = code
     st.session_state.positions = _default_positions(code)
     st.session_state.next_position_id = len(st.session_state.positions) + 1
-    for k in _TRANSIENT_KEYS:
-        st.session_state.pop(k, None)
+    st.session_state.pop(_ADD_POSITION_KEY, None)
+    if clear_import_wizard:
+        for k in _IMPORT_WIZARD_KEYS:
+            st.session_state.pop(k, None)
+    for widget_key in _COMMODITY_WIDGET_KEYS:
+        st.session_state[widget_key] = code
 
 
 def visible_positions() -> List[Position]:

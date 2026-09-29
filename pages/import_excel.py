@@ -9,11 +9,32 @@ from jsa_risk.data import presets_repo
 from jsa_risk.importer.commit import positions_from_staging
 from jsa_risk.importer.mapping import IMPORT_TARGETS, QST_DEFAULT_MAPPING, auto_map, mapping_to_header_names
 from jsa_risk.importer.parsing import parse_pasted_text
-from jsa_risk.importer.staging import build_staging_row, distinct_commodity_codes, staging_row_valid
+from jsa_risk.importer.staging import build_staging_row, label_commodity_code, staging_row_valid
 from jsa_risk.pricing.commodities import COMMODITIES
 from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
 
 _OVERRIDE_RE = re.compile(r"^[A-Z]\d{2}$")
+
+
+def _on_import_commodity_change() -> None:
+    # clear_import_wizard=False: keeps whatever sheet is already pasted/parsed/staged so
+    # it just gets re-filtered under the newly picked commodity, instead of forcing a
+    # re-paste -- the whole point of picking it here rather than in the sidebar.
+    state.set_commodity(st.session_state["import_commodity_picker"], clear_import_wizard=False)
+
+
+_codes = list(COMMODITIES.keys())
+st.selectbox(
+    "Import as commodity",
+    _codes,
+    index=_codes.index(state.get_commodity_spec().code),
+    format_func=lambda c: f"{COMMODITIES[c].icon} {COMMODITIES[c].name} ({c})",
+    key="import_commodity_picker",
+    on_change=_on_import_commodity_change,
+    help="Only rows that look like this commodity's own contracts are pulled in below — "
+         "everything else in the sheet is left out. Matches the sidebar; picking a "
+         "different commodity here switches the whole dashboard to it.",
+)
 
 commodity = state.get_commodity_spec()
 
@@ -127,40 +148,51 @@ if "import_staging" in st.session_state:
     st.markdown("---")
     st.markdown("###### Preview & fix")
     staging = st.session_state.import_staging
+
+    # A row whose label is positively identified as a *different* commodity is never
+    # pulled in -- everything else (this commodity's own rows, plus any row whose label
+    # doesn't recognizably belong to any commodity) is left for the usual Ready/Fix check.
+    # Keyed by label rather than by row identity/equality, since two otherwise-identical
+    # rows (same label, strike, qty, ...) would break an object-membership check.
+    row_codes = {r.label: label_commodity_code(r.label) for r in staging if r.label}
+
+    def _row_included(r) -> bool:
+        return row_codes.get(r.label) in (None, commodity.code)
+
+    included = [r for r in staging if _row_included(r)]
+    skipped = [r for r in staging if not _row_included(r)]
+
+    def _status(r) -> str:
+        if not _row_included(r):
+            other = COMMODITIES[row_codes[r.label]]
+            return f"Skipped ({other.name})"
+        return "Ready" if staging_row_valid(r) else "Fix"
+
     df = pd.DataFrame([{
         "Label": r.label, "Type": r.type, "Strike": r.strike, "Expiry": r.expiry,
         "Qty": r.qty, "IV%": r.iv, "Entry": r.entry, "Last tick": r.last_tick,
-        "Status": "Ready" if staging_row_valid(r) else "Fix",
+        "Status": _status(r),
     } for r in staging])
     st.dataframe(df, hide_index=True, use_container_width=True)
 
-    valid_count = sum(1 for r in staging if staging_row_valid(r))
-    st.caption(f"{valid_count} of {len(staging)} row(s) are ready to import.")
+    valid_count = sum(1 for r in included if staging_row_valid(r))
+    st.caption(f"{valid_count} of {len(included)} {commodity.name.lower()} row(s) are ready to import.")
 
-    # Hard stop before any pricing/override UI is even shown -- a sheet that mixes
-    # commodities (or belongs to a different one than what's selected) must never reach
-    # "Replace book", since positions from the wrong commodity are priced with the wrong
-    # $ multiplier and contract calendar, silently, and this book can be large.
-    detected_codes = distinct_commodity_codes(r.label for r in staging if r.label)
-    commodity_error = None
-    if len(detected_codes) > 1:
-        names = ", ".join(f"{COMMODITIES[c].name} ({c})" for c in sorted(detected_codes))
-        commodity_error = (
-            f"This sheet mixes more than one commodity's contracts — {names}. Split it into "
-            "separate imports, one commodity at a time, and re-paste. Nothing has been imported."
+    if skipped:
+        skipped_codes = sorted({row_codes[r.label] for r in skipped})
+        names = ", ".join(f"{COMMODITIES[c].name} ({c})" for c in skipped_codes)
+        st.info(
+            f"Skipped {len(skipped)} row(s) that look like a different commodity — {names}. "
+            f"Only {commodity.name} rows are pulled in here; pick a different commodity above "
+            "to import those instead.",
+            icon=":material/info:",
         )
-    elif detected_codes and commodity.code not in detected_codes:
-        (other_code,) = detected_codes
-        commodity_error = (
-            f"This sheet looks like {COMMODITIES[other_code].name} ({other_code}) contracts, but "
-            f"the dashboard is currently set to {commodity.name} ({commodity.code}). Switch "
-            "commodities in the sidebar before importing — otherwise every position here would be "
-            "priced with the wrong contract size and calendar. Nothing has been imported."
+    if staging and not included:
+        st.warning(
+            f"None of these rows look like {commodity.name} contracts. Pick the commodity "
+            "this sheet actually belongs to above, or fix the symbols, before importing.",
+            icon=":material/warning:",
         )
-
-    if commodity_error:
-        st.error(commodity_error, icon=":material/warning:")
-        st.stop()
 
     st.markdown("###### Adjust underlying futures contracts (optional)")
     st.caption(
@@ -169,7 +201,7 @@ if "import_staging" in st.session_state:
         "September options price off December starting Sep 1). Override only the one-offs "
         "that still need fixing, using a canonical key like Z26 for December '26."
     )
-    distinct_labels = sorted({r.label for r in staging if r.label})
+    distinct_labels = sorted({r.label for r in included if r.label})
     prior_overrides = st.session_state.get("import_underlying_overrides", {})
     override_df = pd.DataFrame([{
         "Symbol": label,
@@ -198,7 +230,7 @@ if "import_staging" in st.session_state:
 
     if st.button(f"Replace book with {valid_count} position(s)", type="primary", disabled=valid_count == 0):
         positions, estimated_count = positions_from_staging(
-            staging,
+            included,
             get_contract_price=state.get_contract_price,
             snapshot_iv=state.snapshot_iv,
             canonical_contract_key=lambda label: canonical_contract_key(label, commodity=commodity),

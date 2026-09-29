@@ -2,6 +2,7 @@ from jsa_risk.importer.mapping import auto_map
 from jsa_risk.importer.staging import (
     build_staging_row,
     distinct_commodity_codes,
+    label_commodity_code,
     looks_like_unit_mismatch,
     parse_num,
     staging_row_valid,
@@ -89,3 +90,16 @@ def test_distinct_commodity_codes_ignores_unrecognized_prefixes():
 
 def test_distinct_commodity_codes_empty_for_no_recognizable_labels():
     assert distinct_commodity_codes(["garbage", "", None]) == set()
+
+
+def test_label_commodity_code_recognizes_a_known_prefix():
+    assert label_commodity_code("ZCZ26") == "ZC"
+    assert label_commodity_code("zsf27") == "ZS"  # case-insensitive
+    assert label_commodity_code("LEG26") == "LE"
+    assert label_commodity_code("GFH26") == "GF"
+
+
+def test_label_commodity_code_none_for_an_unrecognized_prefix():
+    assert label_commodity_code("garbage") is None
+    assert label_commodity_code("") is None
+    assert label_commodity_code(None) is None
