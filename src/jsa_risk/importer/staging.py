@@ -5,7 +5,9 @@ sign-derivation rule that was a real bug fix in the original.
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Iterable, List, Optional, Set
+
+from jsa_risk.pricing.commodities import COMMODITIES
 
 
 def parse_num(s: Optional[str]) -> Optional[float]:
@@ -57,6 +59,21 @@ def strip_label_suffix(label: str) -> str:
     — strip anything from the { onward so the base symbol decodes normally."""
     idx = label.find("{")
     return label[:idx] if idx >= 0 else label
+
+
+def distinct_commodity_codes(labels: Iterable[str]) -> Set[str]:
+    """The set of recognized 2-letter commodity codes among these labels' own prefixes
+    (e.g. "ZC" from "ZCZ26") -- ignores any label that doesn't start with a known code,
+    so an unusual-but-legitimate symbol format never gets miscounted as a commodity of
+    its own. Used to catch a sheet that mixes contracts from more than one commodity, or
+    that belongs to a different commodity than the one currently selected, before it's
+    ever committed to the book."""
+    codes: Set[str] = set()
+    for label in labels:
+        prefix = (label or "").strip().upper()[:2]
+        if prefix in COMMODITIES:
+            codes.add(prefix)
+    return codes
 
 
 def looks_like_unit_mismatch(value: Optional[float], reference_price: float) -> bool:

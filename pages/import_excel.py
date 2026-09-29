@@ -9,7 +9,8 @@ from jsa_risk.data import presets_repo
 from jsa_risk.importer.commit import positions_from_staging
 from jsa_risk.importer.mapping import IMPORT_TARGETS, QST_DEFAULT_MAPPING, auto_map, mapping_to_header_names
 from jsa_risk.importer.parsing import parse_pasted_text
-from jsa_risk.importer.staging import build_staging_row, staging_row_valid
+from jsa_risk.importer.staging import build_staging_row, distinct_commodity_codes, staging_row_valid
+from jsa_risk.pricing.commodities import COMMODITIES
 from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
 
 _OVERRIDE_RE = re.compile(r"^[A-Z]\d{2}$")
@@ -135,6 +136,31 @@ if "import_staging" in st.session_state:
 
     valid_count = sum(1 for r in staging if staging_row_valid(r))
     st.caption(f"{valid_count} of {len(staging)} row(s) are ready to import.")
+
+    # Hard stop before any pricing/override UI is even shown -- a sheet that mixes
+    # commodities (or belongs to a different one than what's selected) must never reach
+    # "Replace book", since positions from the wrong commodity are priced with the wrong
+    # $ multiplier and contract calendar, silently, and this book can be large.
+    detected_codes = distinct_commodity_codes(r.label for r in staging if r.label)
+    commodity_error = None
+    if len(detected_codes) > 1:
+        names = ", ".join(f"{COMMODITIES[c].name} ({c})" for c in sorted(detected_codes))
+        commodity_error = (
+            f"This sheet mixes more than one commodity's contracts — {names}. Split it into "
+            "separate imports, one commodity at a time, and re-paste. Nothing has been imported."
+        )
+    elif detected_codes and commodity.code not in detected_codes:
+        (other_code,) = detected_codes
+        commodity_error = (
+            f"This sheet looks like {COMMODITIES[other_code].name} ({other_code}) contracts, but "
+            f"the dashboard is currently set to {commodity.name} ({commodity.code}). Switch "
+            "commodities in the sidebar before importing — otherwise every position here would be "
+            "priced with the wrong contract size and calendar. Nothing has been imported."
+        )
+
+    if commodity_error:
+        st.error(commodity_error, icon=":material/warning:")
+        st.stop()
 
     st.markdown("###### Adjust underlying futures contracts (optional)")
     st.caption(

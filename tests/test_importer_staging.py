@@ -1,6 +1,7 @@
 from jsa_risk.importer.mapping import auto_map
 from jsa_risk.importer.staging import (
     build_staging_row,
+    distinct_commodity_codes,
     looks_like_unit_mismatch,
     parse_num,
     staging_row_valid,
@@ -70,3 +71,21 @@ def test_unit_mismatch_heuristic():
     assert looks_like_unit_mismatch(440, 4.62) is True  # 440 vs 4.62 ref -> looks like cents left unconverted
     assert looks_like_unit_mismatch(4.70, 4.62) is False
     assert looks_like_unit_mismatch(None, 4.62) is False
+
+
+def test_distinct_commodity_codes_finds_a_single_commodity():
+    assert distinct_commodity_codes(["ZCZ26", "ZCU26", "ZCN27"]) == {"ZC"}
+
+
+def test_distinct_commodity_codes_detects_a_mix():
+    assert distinct_commodity_codes(["ZCZ26", "ZSF27", "ZCU26"]) == {"ZC", "ZS"}
+
+
+def test_distinct_commodity_codes_ignores_unrecognized_prefixes():
+    # A label whose first two characters aren't a known commodity code shouldn't be
+    # counted as evidence of a distinct (unrecognized) commodity -- it's just left alone.
+    assert distinct_commodity_codes(["ZCZ26", "garbage", "", "X"]) == {"ZC"}
+
+
+def test_distinct_commodity_codes_empty_for_no_recognizable_labels():
+    assert distinct_commodity_codes(["garbage", "", None]) == set()
