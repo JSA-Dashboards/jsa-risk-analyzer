@@ -17,19 +17,24 @@ import snowflake.connector
 ROOT = Path(__file__).resolve().parent.parent
 SECRETS_PATH = ROOT / ".streamlit" / "secrets.toml"
 
-IV_SNAPSHOT = {"U26": 25.20, "Z26": 23.43, "N27": 21.50}
+# Keys are commodity-prefixed (2-letter product code + canonical key, e.g. "ZC" + "U26")
+# so each commodity's reference data has its own namespace in these shared tables -- see
+# jsa_risk.pricing.commodities.reference_key. Only corn has real reference data researched
+# so far; the other three commodities (ZS/LE/GF) start with none, falling back to the
+# app's DEFAULT_CONTRACT_PRICE/DEFAULT_IV placeholders until real data is entered.
+IV_SNAPSHOT = {"ZCU26": 25.20, "ZCZ26": 23.43, "ZCN27": 21.50}
 IV_SOURCE = "Barchart corn options quotes"
 
-CONTRACT_MARKS = {"U26": 5.15, "Z26": 5.3925, "N27": 5.625}
+CONTRACT_MARKS = {"ZCU26": 5.15, "ZCZ26": 5.3925, "ZCN27": 5.625}
 
-PRIOR_SETTLE_FUTURES = {"U26": 4.6500, "Z26": 4.8950, "N27": 5.1500}
+PRIOR_SETTLE_FUTURES = {"ZCU26": 4.6500, "ZCZ26": 4.8950, "ZCN27": 5.1500}
 PRIOR_SETTLE_OPTIONS = [
-    ("U26", "call", 5.00, 0.00125),
-    ("U26", "put", 4.30, 0.00125),
-    ("U26", "call", 4.70, 0.02625),
-    ("Z26", "put", 4.50, 0.05625),
-    ("Z26", "call", 4.90, 0.21000),
-    ("N27", "call", 4.60, 0.66750),
+    ("ZCU26", "call", 5.00, 0.00125),
+    ("ZCU26", "put", 4.30, 0.00125),
+    ("ZCU26", "call", 4.70, 0.02625),
+    ("ZCZ26", "put", 4.50, 0.05625),
+    ("ZCZ26", "call", 4.90, 0.21000),
+    ("ZCN27", "call", 4.60, 0.66750),
 ]
 PRIOR_SETTLE_AS_OF = "2026-08-17"
 PRIOR_SETTLE_SOURCE = "CME Group settlements"
@@ -77,6 +82,14 @@ def main() -> int:
         **kw,
     )
     cur = conn.cursor()
+
+    # One-time migration: earlier seeds wrote bare 3-char keys (e.g. "U26") before
+    # reference data became commodity-prefixed. Those rows are now orphaned -- nothing
+    # will ever look them up again -- so clear them out rather than leaving stale
+    # duplicates alongside the prefixed rows this script writes below.
+    for table in ("IV_SNAPSHOT", "CONTRACT_MARKS", "PRIOR_SETTLE_FUTURES", "PRIOR_SETTLE_OPTIONS"):
+        cur.execute(f"DELETE FROM {table} WHERE LENGTH(CANONICAL_KEY) = 3")
+    print("Cleared orphaned pre-migration (bare 3-char key) reference rows")
 
     for key, iv in IV_SNAPSHOT.items():
         cur.execute(

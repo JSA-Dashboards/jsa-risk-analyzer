@@ -2,6 +2,7 @@ from datetime import date
 
 import pytest
 
+from jsa_risk.pricing.commodities import LIVE_CATTLE
 from jsa_risk.pricing.stress import (
     Position,
     StressState,
@@ -119,6 +120,15 @@ class TestEffectiveUnderlying:
     def test_display_with_override_is_tagged(self):
         p = Position(id=5, label="ZCZ26", type="future", qty=1, entry=5.0, underlying_override="U26")
         assert effective_underlying_display(p, today=TODAY) == "Sep '26 (override)"
+
+    def test_contract_size_scales_with_the_selected_commodity(self):
+        # Same position, same futures mark -- only the commodity's $ multiplier differs
+        # (corn: 5000 bu/contract vs. live cattle: 40000 lb/contract). Z26 decodes the
+        # same way under both specs since December is a listed month for each.
+        p = make_future(qty=10, entry=4.80)
+        r_corn = eval_position(p, StressState(), price_book, today=TODAY)
+        r_cattle = eval_position(p, StressState(), price_book, today=TODAY, commodity=LIVE_CATTLE)
+        assert r_cattle.delta_d == pytest.approx(r_corn.delta_d * (LIVE_CATTLE.contract_size / 5000))
 
     def test_display_with_override_does_not_re_roll_even_after_that_contract_expired(self):
         # If the override itself names a contract whose own month has since begun, the

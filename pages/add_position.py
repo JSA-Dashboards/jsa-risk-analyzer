@@ -8,9 +8,10 @@ from jsa_risk.pricing.stress import Position
 from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
 from jsa_risk.state import get_contract_price
 
-CORN_MULT = 5000
-DEFAULT_CONTRACT_PRICE = 4.62
 INSTRUMENTS = ["call", "put", "future"]
+
+commodity = state.get_commodity_spec()
+DEFAULT_CONTRACT_PRICE = 4.62
 
 
 def _fmt_dollars_signed(v: float) -> str:
@@ -18,9 +19,9 @@ def _fmt_dollars_signed(v: float) -> str:
     return f"{sign}${abs(v):,.0f}"
 
 
-def _fmt_bu_signed(v: float) -> str:
+def _fmt_unit_signed(v: float, unit: str) -> str:
     sign = "-" if v < 0 else "+"
-    return f"{sign}{abs(v):,.0f} bu"
+    return f"{sign}{abs(v):,.0f} {unit}"
 
 
 def _default_draft() -> dict:
@@ -48,22 +49,22 @@ def _on_type_change() -> None:
         draft["strike"], draft["expiry"], draft["iv"] = None, None, None
         draft["use_model_entry"] = True
     elif draft.get("strike") is None:
-        draft["strike"] = round(get_contract_price(canonical_contract_key(draft["label"])), 2)
+        draft["strike"] = round(get_contract_price(canonical_contract_key(draft["label"], commodity=commodity)), 2)
         draft["expiry"] = date.today() + timedelta(days=60)
         draft["iv"] = 25.0
 
 
 st.markdown("###### New position ticket")
 st.caption(
-    "Priced live against the current corn futures market data — add it and it lands directly "
-    "in the blotter."
+    f"Priced live against the current {commodity.name} futures market data — add it and it "
+    "lands directly in the blotter."
 )
 
 field_col, preview_col = st.columns([3, 2])
 
 with field_col:
     draft["label"] = st.text_input(
-        "Contract symbol (required)", value=draft["label"], placeholder="e.g. ZCZ26",
+        "Contract symbol (required)", value=draft["label"], placeholder=f"e.g. {commodity.code}{commodity.listed_months[0]}26",
         help="Decoded to the underlying month/year automatically.",
     ).strip()
     st.selectbox(
@@ -102,8 +103,8 @@ with field_col:
         draft["entry"] = None
 
 with preview_col:
-    F = get_contract_price(canonical_contract_key(draft["label"]))
-    pos_mult = draft["qty"] * CORN_MULT
+    F = get_contract_price(canonical_contract_key(draft["label"], commodity=commodity))
+    pos_mult = draft["qty"] * commodity.contract_size
 
     if is_future:
         model_price = F
@@ -125,19 +126,19 @@ with preview_col:
 
     pnl = (model_price - entry_price) * pos_mult
 
-    title = (draft["label"] or "Corn") + " " + ("FUTURE" if is_future else f"{draft['type'].upper()} {draft['strike']}")
+    title = (draft["label"] or commodity.name) + " " + ("FUTURE" if is_future else f"{draft['type'].upper()} {draft['strike']}")
     st.markdown(f"**{title}**")
-    contract_name = f"{draft['label']} futures" if draft["label"] else "Corn futures (no contract picked — using default mark)"
+    contract_name = f"{draft['label']} futures" if draft["label"] else f"{commodity.name} futures (no contract picked — using default mark)"
     if is_future:
-        sub = f"{contract_name} mark ${F:.3f}/bu · linear exposure, no expiry decay"
+        sub = f"{contract_name} mark ${F:.3f}/{commodity.unit} · linear exposure, no expiry decay"
     else:
-        sub = f"{contract_name} mark ${F:.3f}/bu · strike ${draft['strike'] or 0:.2f} · {dte}d to expiry"
+        sub = f"{contract_name} mark ${F:.3f}/{commodity.unit} · strike ${draft['strike'] or 0:.2f} · {dte}d to expiry"
     st.caption(sub)
 
     c1, c2 = st.columns(2)
     c1.metric("Model price", f"${model_price:.3f}")
     c2.metric("Entry price" if is_future else "Entry premium", f"${entry_price:.3f}")
-    c1.metric("Delta (bu)", _fmt_bu_signed(delta_d))
+    c1.metric(f"Delta ({commodity.unit})", _fmt_unit_signed(delta_d, commodity.unit))
     c2.metric("Gamma $", _fmt_dollars_signed(gamma_d))
     c1.metric("Vega $/vol pt", _fmt_dollars_signed(vega_d))
     c2.metric("Theta $/day", _fmt_dollars_signed(theta_d))
@@ -155,7 +156,7 @@ if reset_clicked:
 if submit_clicked:
     error = None
     if not draft["label"]:
-        error = "Enter the contract symbol this is against (e.g. ZCZ26) — the strike is meaningless without it."
+        error = f"Enter the contract symbol this is against (e.g. {commodity.code}{commodity.listed_months[0]}26) — the strike is meaningless without it."
     elif not is_future and (not draft["strike"] or draft["strike"] <= 0):
         error = "Strike must be greater than 0."
     elif not is_future and draft["expiry"] is None:
@@ -179,5 +180,7 @@ if submit_clicked:
             iv=None if is_future else draft["iv"],
         )
         new_id = state.add_position(new_position)
-        st.session_state["_flash_added"] = f"Added {contract_display_name(draft['label'])} {draft['type']} — position #{new_id}."
+        st.session_state["_flash_added"] = (
+            f"Added {contract_display_name(draft['label'], commodity=commodity)} {draft['type']} — position #{new_id}."
+        )
         st.switch_page("pages/dashboard.py")

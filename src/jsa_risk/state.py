@@ -11,25 +11,45 @@ around unused, in case a separate internal-only view is wanted later.)
 Reference data — contract marks, IV snapshot, prior settles, import presets — stays
 Snowflake-backed via `data/reference_repo.py` / `data/presets_repo.py`: that's real shared
 market data and format templates, not customer-specific, so it's correct for every session
-to see the same values.
+to see the same values. Since those tables are keyed by a bare 3-char canonical key (e.g.
+"Z26") that isn't unique across commodities, every read/write here goes through the
+current session's commodity so the stored key is prefixed with its 2-letter product code
+(see commodities.reference_key) -- Dec corn and Dec soybeans never collide.
+
+The dashboard shows exactly one commodity at a time (see get_commodity_spec/set_commodity)
+— positions are commodity-specific, so switching clears the book rather than mixing
+contracts that price completely differently (different $ multiplier, different quoting
+unit) into one view.
 """
 from dataclasses import replace
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import streamlit as st
 
 from jsa_risk.data import reference_repo
+from jsa_risk.pricing.commodities import CORN, CommoditySpec, get_commodity, reference_key
 from jsa_risk.pricing.stress import Position, StressState
+
+# session_state keys that hold data specific to whatever commodity was previously
+# selected -- cleared on every commodity switch so nothing from the old book/screen
+# lingers (e.g. a half-filled Import from Excel preview, or an Add Position draft).
+_TRANSIENT_KEYS = [
+    "add_pos_draft", "import_headers", "import_rows", "import_mapping",
+    "import_staging", "import_underlying_overrides",
+]
 
 
 def _in_days(n: int) -> date:
     return date.today() + timedelta(days=n)
 
 
-def _default_positions() -> List[Position]:
-    """The same 10-position demo book the original HTML tool always opened with —
-    customers see a populated, explorable example before pasting/adding their own."""
+def _default_positions(commodity_code: str) -> List[Position]:
+    """The same 10-position corn demo book the original HTML tool always opened with —
+    customers see a populated, explorable example before pasting/adding their own. There's
+    no equivalent seed book for the other commodities yet, so they start empty."""
+    if commodity_code != CORN.code:
+        return []
     return [
         Position(id=1, label="ZCU26", type="call", qty=-30, entry=0.21, strike=5.00,
                  expiry_date=_in_days(32), iv=25.20, iv_estimated=True, last_tick=0.020),
@@ -53,11 +73,28 @@ def _default_positions() -> List[Position]:
 
 def init_session_state() -> None:
     """Idempotent — safe to call at the top of every page."""
+    if "commodity_code" not in st.session_state:
+        st.session_state.commodity_code = CORN.code
     if "stress" not in st.session_state:
         st.session_state.stress = StressState()
     if "positions" not in st.session_state:
-        st.session_state.positions = _default_positions()
-        st.session_state.next_position_id = 11
+        st.session_state.positions = _default_positions(st.session_state.commodity_code)
+        st.session_state.next_position_id = len(st.session_state.positions) + 1
+
+
+def get_commodity_spec() -> CommoditySpec:
+    return get_commodity(st.session_state.get("commodity_code", CORN.code))
+
+
+def set_commodity(code: str) -> None:
+    """Switching commodities starts a fresh book -- a position priced against one
+    commodity's contracts (different $ multiplier, different quoting unit) is meaningless
+    under another's, so there's no sensible way to carry the old book over."""
+    st.session_state.commodity_code = code
+    st.session_state.positions = _default_positions(code)
+    st.session_state.next_position_id = len(st.session_state.positions) + 1
+    for k in _TRANSIENT_KEYS:
+        st.session_state.pop(k, None)
 
 
 def visible_positions() -> List[Position]:
@@ -107,4 +144,39 @@ def replace_book(positions: List[Position]) -> int:
 
 
 def get_contract_price(canonical_key: str) -> float:
-    return reference_repo.get_contract_price(canonical_key)
+    spec = get_commodity_spec()
+    return reference_repo.get_contract_price(reference_key(spec, canonical_key))
+
+
+def set_contract_price(canonical_key: str, price: float, source: str = "manual") -> None:
+    spec = get_commodity_spec()
+    reference_repo.set_contract_price(reference_key(spec, canonical_key), price, source)
+
+
+def snapshot_iv(canonical_key: str) -> float:
+    spec = get_commodity_spec()
+    return reference_repo.snapshot_iv(reference_key(spec, canonical_key))
+
+
+def get_contract_marks() -> Dict[str, float]:
+    """Bulk marks for the *current* commodity only, de-prefixed back to bare canonical
+    keys (e.g. "ZCZ26" -> "Z26") so callers can look them up the same way get_contract_price
+    is called elsewhere. Relies on every commodity code being exactly 2 characters."""
+    spec = get_commodity_spec()
+    prefix = spec.code
+    return {
+        k[len(prefix):]: v
+        for k, v in reference_repo.get_contract_marks().items()
+        if k.startswith(prefix)
+    }
+
+
+def get_iv_provenance() -> List[dict]:
+    """Same de-prefixing as get_contract_marks, for the per-contract IV provenance rows."""
+    spec = get_commodity_spec()
+    prefix = spec.code
+    return [
+        {**r, "key": r["key"][len(prefix):]}
+        for r in reference_repo.get_iv_provenance()
+        if r["key"].startswith(prefix)
+    ]

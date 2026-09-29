@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from jsa_risk import state
-from jsa_risk.data import presets_repo, reference_repo
+from jsa_risk.data import presets_repo
 from jsa_risk.importer.commit import positions_from_staging
 from jsa_risk.importer.mapping import IMPORT_TARGETS, QST_DEFAULT_MAPPING, auto_map, mapping_to_header_names
 from jsa_risk.importer.parsing import parse_pasted_text
@@ -14,25 +14,27 @@ from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_na
 
 _OVERRIDE_RE = re.compile(r"^[A-Z]\d{2}$")
 
+commodity = state.get_commodity_spec()
+
 st.markdown("###### Getting this from QST")
 st.info(
     "1. Go to QST\n"
     "2. Select your account\n"
     "3. Go to Orders and Positions Summary\n"
     "4. Export to Excel\n"
-    "5. Filter out all other commodities other than corn\n"
-    "6. Copy the entire workbook (with corn only filtered)\n"
+    f"5. Filter out all other commodities other than {commodity.name.lower()}\n"
+    f"6. Copy the entire workbook (with {commodity.name.lower()} only filtered)\n"
     "7. Paste into cells below"
 )
 
 st.markdown("###### Paste or upload a position sheet")
 st.caption(
-    "Works for corn options and futures in the same sheet — column names and order don't need "
-    "to match, you'll map them next. Every row needs a Contract symbol. Strike, entry/premium, "
-    "and last-tick prices are all read as cents/bu. If your Qty column is unsigned, also map "
-    "Position (\"Net Long\"/\"Net Short\"/\"Net\") to supply the sign — a bare \"Net\" means flat "
-    "and won't import. **Importing replaces your whole book** — this only affects your own "
-    "browser session, never anyone else's."
+    f"Works for {commodity.name.lower()} options and futures in the same sheet — column names "
+    "and order don't need to match, you'll map them next. Every row needs a Contract symbol. "
+    f"Strike, entry/premium, and last-tick prices are all read as cents/{commodity.unit}. If your "
+    "Qty column is unsigned, also map Position (\"Net Long\"/\"Net Short\"/\"Net\") to supply the "
+    "sign — a bare \"Net\" means flat and won't import. **Importing replaces your whole book** — "
+    "this only affects your own browser session, never anyone else's."
 )
 
 
@@ -145,7 +147,7 @@ if "import_staging" in st.session_state:
     prior_overrides = st.session_state.get("import_underlying_overrides", {})
     override_df = pd.DataFrame([{
         "Symbol": label,
-        "Auto underlying": contract_display_name(label),
+        "Auto underlying": contract_display_name(label, commodity=commodity),
         "Override (blank = auto)": prior_overrides.get(label, ""),
     } for label in distinct_labels])
     edited_overrides = st.data_editor(
@@ -171,9 +173,9 @@ if "import_staging" in st.session_state:
     if st.button(f"Replace book with {valid_count} position(s)", type="primary", disabled=valid_count == 0):
         positions, estimated_count = positions_from_staging(
             staging,
-            get_contract_price=reference_repo.get_contract_price,
-            snapshot_iv=reference_repo.snapshot_iv,
-            canonical_contract_key=canonical_contract_key,
+            get_contract_price=state.get_contract_price,
+            snapshot_iv=state.snapshot_iv,
+            canonical_contract_key=lambda label: canonical_contract_key(label, commodity=commodity),
             underlying_overrides=new_overrides,
         )
         count = state.replace_book(positions)

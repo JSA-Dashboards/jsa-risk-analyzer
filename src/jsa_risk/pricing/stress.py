@@ -11,9 +11,7 @@ from datetime import date
 from typing import Callable, Optional
 
 from .black76 import black76
-
-CORN_MULT = 5000
-CORN_DAILY_VOL = 0.016
+from .commodities import CORN, CommoditySpec
 
 
 @dataclass(frozen=True)
@@ -37,14 +35,18 @@ class Position:
     underlying_override: Optional[str] = None
 
 
-def effective_underlying_key(position: Position, today: Optional[date] = None) -> str:
+def effective_underlying_key(
+    position: Position, today: Optional[date] = None, commodity: CommoditySpec = CORN
+) -> str:
     if position.underlying_override:
         return position.underlying_override.strip().upper()
     from .symbols import canonical_contract_key  # local import avoids a circular dependency
-    return canonical_contract_key(position.label, today)
+    return canonical_contract_key(position.label, today, commodity)
 
 
-def effective_underlying_display(position: Position, today: Optional[date] = None) -> str:
+def effective_underlying_display(
+    position: Position, today: Optional[date] = None, commodity: CommoditySpec = CORN
+) -> str:
     """Same display convention as contract_display_name, but reflects a manual
     underlying_override when set, tagged "(override)". The override names its target
     contract directly (it's already a canonical key, not an option symbol to decode), so
@@ -55,7 +57,7 @@ def effective_underlying_display(position: Position, today: Optional[date] = Non
     from .symbols import contract_display_name, format_canonical_key
     if position.underlying_override:
         return f"{format_canonical_key(position.underlying_override)} (override)"
-    return contract_display_name(position.label, today)
+    return contract_display_name(position.label, today, commodity)
 
 
 @dataclass
@@ -111,14 +113,15 @@ def eval_position(
     sigma_override: Optional[float] = None,
     T_override: Optional[float] = None,
     today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
 ) -> PositionEval:
     no_stress = stress.is_neutral
     has_tick = position.last_tick is not None
     use_last_tick = (F_override is None) and no_stress and has_tick
 
-    canonical_key = effective_underlying_key(position, today)
+    canonical_key = effective_underlying_key(position, today, commodity)
     F = F_override if F_override is not None else stressed_future(get_contract_price(canonical_key), stress)
-    pos_mult = position.qty * CORN_MULT
+    pos_mult = position.qty * commodity.contract_size
     import_basis = position.import_mark if position.import_mark is not None else position.entry
 
     if position.type == "future":

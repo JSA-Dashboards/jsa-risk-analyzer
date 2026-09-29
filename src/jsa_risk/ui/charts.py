@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import plotly.graph_objects as go
 import streamlit as st
 
+from jsa_risk.pricing.commodities import CORN, CommoditySpec
 from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at
 from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
@@ -39,9 +40,9 @@ def _fmt_dollars_signed(v: float) -> str:
     return f"{sign}${abs(v):,.0f}"
 
 
-def _fmt_bu_signed(v: float) -> str:
+def _fmt_unit_signed(v: float, unit: str) -> str:
     sign = "-" if v < 0 else "+"
-    return f"{sign}{abs(v):,.0f} bu"
+    return f"{sign}{abs(v):,.0f} {unit}"
 
 
 def render_pnl_heatmap(
@@ -49,6 +50,7 @@ def render_pnl_heatmap(
     stress: StressState,
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
 ) -> None:
     # Purely numeric x/y (0,1,2,...) with cosmetic tick labels via update_xaxes/yaxes,
     # rather than handing the Heatmap trace the label strings directly. Plotly's implicit
@@ -62,7 +64,7 @@ def render_pnl_heatmap(
     x_idx = list(range(len(PRICE_SHOCKS)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
     z = [
-        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today) for ps in PRICE_SHOCKS]
+        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity) for ps in PRICE_SHOCKS]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
@@ -119,9 +121,11 @@ def render_delta_scenario(
     stress: StressState,
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
 ) -> None:
+    unit = commodity.unit
     price_labels = [_fmt_cents(p) for p in PRICE_SHOCKS]
-    row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today) for ps in PRICE_SHOCKS]
+    row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity) for ps in PRICE_SHOCKS]
     max_abs = max(1.0, max(abs(v) for v in row))
     base = row[PRICE_SHOCKS.index(0.0)]
     text = [[f"{v:,.0f}" for v in row]]
@@ -129,7 +133,7 @@ def render_delta_scenario(
     fig = go.Figure(
         go.Heatmap(
             x=price_labels,
-            y=["Net delta (bu)"],
+            y=[f"Net delta ({unit})"],
             z=[row],
             colorscale="RdYlGn",
             zmid=0,
@@ -138,7 +142,7 @@ def render_delta_scenario(
             text=text,
             texttemplate="%{text}",
             textfont={"size": 11},
-            hovertemplate="Price %{x}<br>Net delta: %{text} bu<extra></extra>",
+            hovertemplate=f"Price %{{x}}<br>Net delta: %{{text}} {unit}<extra></extra>",
             showscale=False,
         )
     )
@@ -153,9 +157,9 @@ def render_delta_scenario(
 
     lo, hi = row[0], row[-1]
     st.caption(
-        f"Cell = net position delta (bu) under that price shock, sign colored long (green) vs short (red). "
-        f"At -50¢: {lo:,.0f} bu (Δ {lo - base:+,.0f} bu) · "
-        f"At +50¢: {hi:,.0f} bu (Δ {hi - base:+,.0f} bu) vs current {base:,.0f} bu."
+        f"Cell = net position delta ({unit}) under that price shock, sign colored long (green) vs short (red). "
+        f"At -50¢: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
+        f"At +50¢: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) vs current {base:,.0f} {unit}."
     )
 
 
@@ -169,6 +173,7 @@ def render_payoff_chart(
     stress: StressState,
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
 ) -> None:
     # Compute well past the default view so zooming/panning out reveals a real, continuing
     # curve instead of hitting blank space at the edge of what used to be the only data.
@@ -197,9 +202,9 @@ def render_payoff_chart(
             "color": EXPIRY_COLORS[i % len(EXPIRY_COLORS)],
         })
     for h in horizons:
-        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today) for s in xs]
+        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity) for s in xs]
 
-    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today)
+    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity)
 
     # Fit the initial Y-range to just the default-visible window's values, not the whole
     # (much wider) computed dataset -- otherwise the visible curve gets squashed into a
@@ -324,11 +329,13 @@ def render_greeks_bars(
     positions: List[Position],
     stress: StressState,
     get_contract_price: Callable[[str], float],
+    commodity: CommoditySpec = CORN,
 ) -> None:
-    evals = {id(p): eval_position(p, stress, get_contract_price) for p in positions}
+    evals = {id(p): eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions}
     cols = st.columns(3)
     order, delta_data = _group_by_contract(positions, evals, lambda r: r.delta_d)
-    _render_mini_bar(cols[0], "Delta (bu)", "per $1", order, delta_data, _fmt_bu_signed)
+    _render_mini_bar(cols[0], f"Delta ({commodity.unit})", "per $1", order, delta_data,
+                      lambda v: _fmt_unit_signed(v, commodity.unit))
     order, vega_data = _group_by_contract(positions, evals, lambda r: r.vega_d)
     _render_mini_bar(cols[1], "Vega $", "per vol pt", order, vega_data, _fmt_dollars_signed)
     order, theta_data = _group_by_contract(positions, evals, lambda r: r.theta_d)

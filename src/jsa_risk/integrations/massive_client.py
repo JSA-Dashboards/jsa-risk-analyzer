@@ -27,11 +27,11 @@ class MassiveFetchResult:
     timeframe: Optional[str]
 
 
-def canonical_key_to_massive_ticker(key: str) -> str:
-    """Massive's outright futures tickers are "ZC" + month letter + the LAST digit of the
-    year (e.g. canonical key "Z26" -> "ZCZ6"); our decoder always keys by month letter +
-    2-digit year, so this only ever needs the final digit."""
-    return f"ZC{key[0]}{key[-1]}"
+def canonical_key_to_massive_ticker(key: str, commodity_code: str = "ZC") -> str:
+    """Massive's outright futures tickers are the 2-letter product code + month letter +
+    the LAST digit of the year (e.g. corn's canonical key "Z26" -> "ZCZ6"); our decoder
+    always keys by month letter + 2-digit year, so this only ever needs the final digit."""
+    return f"{commodity_code}{key[0]}{key[-1]}"
 
 
 def _fetch_json(url: str, params: dict) -> dict:
@@ -47,7 +47,9 @@ def _fetch_json(url: str, params: dict) -> dict:
     return payload
 
 
-def fetch_futures_prices(config: MassiveConfig, canonical_keys: List[str]) -> MassiveFetchResult:
+def fetch_futures_prices(
+    config: MassiveConfig, canonical_keys: List[str], commodity_code: str = "ZC"
+) -> MassiveFetchResult:
     """One quiet retry after ~800ms — a gateway hiccup or rate limit can return a plain-text
     body (not JSON), almost always a transient upstream timeout, matching the original
     tool's fix. Raises on a second failure; the caller decides how to surface that."""
@@ -55,7 +57,7 @@ def fetch_futures_prices(config: MassiveConfig, canonical_keys: List[str]) -> Ma
     if not keys:
         return MassiveFetchResult(updated={}, timeframe=None)
 
-    tickers = [canonical_key_to_massive_ticker(k) for k in keys]
+    tickers = [canonical_key_to_massive_ticker(k, commodity_code) for k in keys]
     url = f"{config.base_url}/futures/v1/snapshot"
     params = {"ticker.any_of": ",".join(tickers), "apiKey": config.api_key}
 

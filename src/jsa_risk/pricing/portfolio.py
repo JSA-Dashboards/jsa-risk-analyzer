@@ -7,6 +7,7 @@ Both functions layer an *additional* shock on top of the current stress-slider s
 from datetime import date
 from typing import Callable, Iterable, Optional
 
+from .commodities import CORN, CommoditySpec
 from .stress import (
     Position,
     PositionEval,
@@ -27,10 +28,11 @@ def portfolio_pnl_at(
     vol_shock_pct: float,
     days_fwd: float,
     today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
 ) -> float:
     total = 0.0
     for p in positions:
-        F = stressed_future(get_contract_price(effective_underlying_key(p, today)), base_stress) + price_shock_dollars
+        F = stressed_future(get_contract_price(effective_underlying_key(p, today, commodity)), base_stress) + price_shock_dollars
         if p.type == "future":
             sigma = 0.5
         else:
@@ -38,7 +40,8 @@ def portfolio_pnl_at(
         dte = days_to_expiry(p.expiry_date, today)
         T = 0.0 if dte is None else max(dte - base_stress.days - days_fwd, 0) / 365
         r: PositionEval = eval_position(
-            p, base_stress, get_contract_price, F_override=F, sigma_override=sigma, T_override=T, today=today
+            p, base_stress, get_contract_price, F_override=F, sigma_override=sigma, T_override=T, today=today,
+            commodity=commodity,
         )
         total += r.pnl
     return total
@@ -50,13 +53,14 @@ def portfolio_delta_at(
     base_stress: StressState,
     price_shock_dollars: float,
     today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
 ) -> float:
-    """Net delta ($, i.e. bushel-equivalent exposure) at a hypothetical price, holding
+    """Net delta ($, i.e. unit-equivalent exposure) at a hypothetical price, holding
     vol and time at the current stress scenario (no extra vol/time axis, unlike
     `portfolio_pnl_at`)."""
     total = 0.0
     for p in positions:
-        F = stressed_future(get_contract_price(effective_underlying_key(p, today)), base_stress) + price_shock_dollars
-        r = eval_position(p, base_stress, get_contract_price, F_override=F, today=today)
+        F = stressed_future(get_contract_price(effective_underlying_key(p, today, commodity)), base_stress) + price_shock_dollars
+        r = eval_position(p, base_stress, get_contract_price, F_override=F, today=today, commodity=commodity)
         total += r.delta_d
     return total

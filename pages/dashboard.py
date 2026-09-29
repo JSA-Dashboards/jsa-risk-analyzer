@@ -1,6 +1,6 @@
 import streamlit as st
 
-from jsa_risk.state import get_contract_price, visible_positions
+from jsa_risk.state import get_commodity_spec, get_contract_price, visible_positions
 from jsa_risk.ui.blotter import render_editable_blotter
 from jsa_risk.ui.charts import (
     render_delta_scenario,
@@ -21,11 +21,13 @@ flash = flash_added or flash_market
 if flash:
     st.success(flash)
 
+commodity = get_commodity_spec()
+
 st.markdown("###### Portfolio risk summary")
 positions = visible_positions()
 stress = st.session_state.stress
 
-render_kpi_strip(positions, stress, get_contract_price)
+render_kpi_strip(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
 
@@ -44,33 +46,33 @@ with c4:
 st.markdown("---")
 
 st.markdown("###### Live market data")
-render_massive_refresh(positions)
-render_market_strip(positions)
-render_iv_provenance(positions)
+render_massive_refresh(positions, commodity)
+render_market_strip(positions, commodity)
+render_iv_provenance(positions, commodity)
 
 st.markdown("---")
 
 st.markdown("###### Position blotter")
 st.caption("This book is private to your browser session — Qty and Entry are editable; check Delete to remove a row.")
-render_editable_blotter(positions, stress, get_contract_price)
+render_editable_blotter(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
 st.markdown("###### Greeks by contract")
-render_greeks_bars(positions, stress, get_contract_price)
+render_greeks_bars(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
 st.markdown("###### P&L scenario heatmap")
 st.caption("Price shock (x-axis, ¢) vs. vol shock (y-axis, %) layered on top of the current stress scenario.")
-render_pnl_heatmap(positions, stress, get_contract_price)
+render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity)
 
 st.markdown("###### Delta scenario")
-render_delta_scenario(positions, stress, get_contract_price)
+render_delta_scenario(positions, stress, get_contract_price, commodity=commodity)
 
 st.markdown("---")
 st.markdown("###### Portfolio payoff")
-st.caption("P&L vs. a corn futures price shock, current vol & time.")
-render_payoff_chart(positions, stress, get_contract_price)
+st.caption(f"P&L vs. a {commodity.name.lower()} futures price shock, current vol & time.")
+render_payoff_chart(positions, stress, get_contract_price, commodity=commodity)
 
 st.markdown("---")
 st.markdown("###### Value at risk")
-render_var_panel(positions, stress, get_contract_price)
+render_var_panel(positions, stress, get_contract_price, commodity)

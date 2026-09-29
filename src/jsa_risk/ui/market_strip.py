@@ -7,11 +7,13 @@ from typing import List, Tuple
 
 import streamlit as st
 
+from jsa_risk import state
 from jsa_risk.data import audit_repo, reference_repo
+from jsa_risk.pricing.commodities import CORN, CommoditySpec
 from jsa_risk.pricing.stress import Position, effective_underlying_display, effective_underlying_key
 
 
-def _distinct_contract_groups(positions: List[Position]) -> List[Tuple[str, Position]]:
+def _distinct_contract_groups(positions: List[Position], commodity: CommoditySpec) -> List[Tuple[str, Position]]:
     """Dedupes by each position's *effective* underlying (its underlying_override if set,
     else the auto-derived one) -- so an Oct option and its Dec future collapse into one
     card, and an overridden position collapses into whatever it was overridden to, not
@@ -20,44 +22,47 @@ def _distinct_contract_groups(positions: List[Position]) -> List[Tuple[str, Posi
     seen = set()
     groups: List[Tuple[str, Position]] = []
     for p in positions:
-        key = effective_underlying_key(p)
+        key = effective_underlying_key(p, commodity=commodity)
         if key not in seen:
             seen.add(key)
             groups.append((key, p))
     return groups
 
 
-def render_market_strip(positions: List[Position]) -> None:
-    groups = _distinct_contract_groups(positions)
+def render_market_strip(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
+    groups = _distinct_contract_groups(positions, commodity)
     if not groups:
         st.caption("No contracts in the book to price.")
         return
 
-    marks = reference_repo.get_contract_marks()
+    marks = state.get_contract_marks()
     cols = st.columns(min(len(groups), 4))
     for i, (key, rep_position) in enumerate(groups):
-        display_name = effective_underlying_display(rep_position) if rep_position.label else "Corn futures (unlabeled)"
-        widget_key = f"mkt_price_{key}"
+        display_name = (
+            effective_underlying_display(rep_position, commodity=commodity) if rep_position.label
+            else f"{commodity.name} futures (unlabeled)"
+        )
+        widget_key = f"mkt_price_{commodity.code}_{key}"
         if widget_key not in st.session_state:
             current = marks.get(key)
             st.session_state[widget_key] = float(current) if current is not None else reference_repo.DEFAULT_CONTRACT_PRICE
 
         def _on_change(k=key, wk=widget_key):
-            reference_repo.set_contract_price(k, st.session_state[wk], source="manual")
+            state.set_contract_price(k, st.session_state[wk], source="manual")
 
         with cols[i % len(cols)]:
             st.number_input(
                 display_name, step=0.01, format="%.4f", key=widget_key, on_change=_on_change,
-                help=f"$/bu — current mark ({key})",
+                help=f"$/{commodity.unit} — current mark ({key})",
             )
 
 
-def render_massive_refresh(positions: List[Position]) -> None:
+def render_massive_refresh(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
     from jsa_risk.config import get_massive_config
     from jsa_risk.integrations import massive_client
 
     config = get_massive_config()
-    canon_keys = sorted({effective_underlying_key(p) for p in positions})
+    canon_keys = sorted({effective_underlying_key(p, commodity=commodity) for p in positions})
 
     btn_col, msg_col = st.columns([1, 4])
     clicked = btn_col.button("↻ Update prices from Massive", disabled=config is None)
@@ -67,14 +72,14 @@ def render_massive_refresh(positions: List[Position]) -> None:
     elif clicked:
         with st.spinner(f"Fetching {', '.join(canon_keys) or 'nothing'} from Massive…"):
             try:
-                result = massive_client.fetch_futures_prices(config, canon_keys)
+                result = massive_client.fetch_futures_prices(config, canon_keys, commodity.code)
             except Exception as e:
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=False, error_message=str(e))
                 msg_col.error(f"Couldn't fetch from Massive: {e}")
             else:
                 for key, price in result.updated.items():
-                    reference_repo.set_contract_price(key, price, source="massive")
-                    st.session_state.pop(f"mkt_price_{key}", None)  # let the card re-seed from the fresh mark
+                    state.set_contract_price(key, price, source="massive")
+                    st.session_state.pop(f"mkt_price_{commodity.code}_{key}", None)  # let the card re-seed from the fresh mark
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=True, http_status=200)
                 if result.updated:
                     delay_note = (
@@ -138,10 +143,10 @@ def summarize_iv_provenance(rows, in_book, now, stale_after_days=STALE_AFTER_DAY
     return {"caption": " · ".join(bits), "warning": warning, "behind": behind}
 
 
-def render_iv_provenance(positions: List[Position]) -> None:
+def render_iv_provenance(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
     """One line saying where the implied vols came from and how old they are."""
     try:
-        rows = reference_repo.get_iv_provenance()
+        rows = state.get_iv_provenance()
     except Exception:
         return                                   # never break the dashboard over a caption
     if not rows:
@@ -149,7 +154,7 @@ def render_iv_provenance(positions: List[Position]) -> None:
                    f"{reference_repo.DEFAULT_IV:.0f}%.")
         return
 
-    in_book = {effective_underlying_key(p) for p in positions}
+    in_book = {effective_underlying_key(p, commodity=commodity) for p in positions}
     summary = summarize_iv_provenance(rows, in_book, datetime.now())
     if summary["caption"]:
         st.caption(summary["caption"])

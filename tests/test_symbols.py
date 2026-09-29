@@ -1,7 +1,7 @@
 from datetime import date
 
+from jsa_risk.pricing.commodities import FEEDER_CATTLE, LIVE_CATTLE, SOYBEANS
 from jsa_risk.pricing.symbols import (
-    SERIAL_TO_QUARTERLY,
     canonical_contract_key,
     contract_display_name,
     decode_contract_symbol,
@@ -25,13 +25,12 @@ def test_decodes_a_serial_option_to_its_next_quarterly():
     assert d.underlying_key == "Z26"
 
 
-def test_every_serial_month_maps_to_the_correct_next_quarterly():
+def test_every_corn_serial_month_maps_to_the_correct_next_listed_month():
     expected = {"F": "H", "G": "H", "J": "K", "M": "N", "Q": "U", "V": "Z", "X": "Z"}
-    assert SERIAL_TO_QUARTERLY == expected
-    for serial_letter, quarterly_letter in expected.items():
+    for serial_letter, listed_letter in expected.items():
         d = decode_contract_symbol(f"ZC{serial_letter}27")
-        assert d.underlying_month == quarterly_letter
-        assert d.underlying_key == quarterly_letter + "27"
+        assert d.underlying_month == listed_letter
+        assert d.underlying_key == listed_letter + "27"
 
 
 def test_rejects_unparseable_or_short_symbols():
@@ -85,3 +84,43 @@ def test_cascades_across_multiple_stale_quarterly_contracts_and_a_year_boundary(
 
 def test_contract_display_name_reflects_a_year_crossing_roll():
     assert contract_display_name("ZCV26", today=date(2026, 12, 1)) == "Mar '27 (via Oct option)"
+
+
+class TestOtherCommodities:
+    def test_soybeans_lists_more_months_than_corn(self):
+        # Soybeans list a January contract (F) that corn does not.
+        d = decode_contract_symbol("ZSF27", today=date(2026, 9, 24), commodity=SOYBEANS)
+        assert d.is_serial is False
+        assert d.underlying_key == "F27"
+
+    def test_soybeans_december_is_serial_and_rolls_into_next_january(self):
+        # Soybeans list no December future at all -- unlike corn, Dec is always serial,
+        # and (being after every listed month) rolls into January of *next* year, not
+        # December's own year.
+        d = decode_contract_symbol("ZSZ26", today=date(2026, 9, 24), commodity=SOYBEANS)
+        assert d.is_serial is True
+        assert d.underlying_month == "F"
+        assert d.underlying_key == "F27"
+        assert contract_display_name("ZSZ26", today=date(2026, 9, 24), commodity=SOYBEANS) == "Jan '27 (via Dec option)"
+
+    def test_live_cattle_listed_months_and_roll(self):
+        # Live cattle lists Feb/Apr/Jun/Aug/Oct/Dec (G,J,M,Q,V,Z) -- Mar (H) is serial and
+        # rolls to Apr (J).
+        d = decode_contract_symbol("LEH26", today=date(2026, 1, 1), commodity=LIVE_CATTLE)
+        assert d.is_serial is True
+        assert d.underlying_key == "J26"
+
+    def test_feeder_cattle_listed_months_and_roll(self):
+        # Feeder cattle lists Jan/Mar/Apr/May/Aug/Sep/Oct/Nov (F,H,J,K,Q,U,V,X) -- Feb (G)
+        # is serial and rolls to Mar (H).
+        d = decode_contract_symbol("GFG26", today=date(2026, 1, 1), commodity=FEEDER_CATTLE)
+        assert d.is_serial is True
+        assert d.underlying_key == "H26"
+
+    def test_same_raw_key_decodes_differently_per_commodity(self):
+        # "H26" (Mar '26) is itself a listed month for corn but not for live cattle --
+        # the commodity spec, not the letter alone, decides.
+        corn_decoded = decode_contract_symbol("ZCH26", today=date(2026, 1, 1))
+        cattle_decoded = decode_contract_symbol("LEH26", today=date(2026, 1, 1), commodity=LIVE_CATTLE)
+        assert corn_decoded.is_serial is False
+        assert cattle_decoded.is_serial is True

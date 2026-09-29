@@ -33,7 +33,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import requests
 
 from jsa_risk.config import CmeGreeksConfig
-from jsa_risk.pricing.symbols import CORN_MONTH_NAMES, QUARTERLY_MONTHS
+from jsa_risk.pricing.commodities import CORN
+from jsa_risk.pricing.symbols import MONTH_NAMES
 
 DEFAULT_TOKEN_TTL_SECONDS = 30 * 60
 _EARLY_REFRESH_SECONDS = 30
@@ -234,7 +235,7 @@ def atm_iv_by_canonical_key(
         if len(tail) != 3:
             continue
         month, year2 = tail[0], tail[1:]
-        if month not in CORN_MONTH_NAMES or month not in QUARTERLY_MONTHS or not year2.isdigit():
+        if month not in MONTH_NAMES or month not in CORN.listed_months or not year2.isdigit():
             continue
         got = _atm_iv(rec.get("values") or [])
         if not got:

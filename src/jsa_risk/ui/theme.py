@@ -46,7 +46,7 @@ confidential or proprietary information intended solely for the use of the desig
 """
 
 
-def render_header_and_disclaimer() -> None:
+def render_header_and_disclaimer(commodity_name: str = "Corn") -> None:
     st.markdown(_ACCENT_CSS, unsafe_allow_html=True)
 
     logo_col, title_col = st.columns([1, 8], vertical_alignment="center")
@@ -59,7 +59,7 @@ def render_header_and_disclaimer() -> None:
     with title_col:
         st.markdown(
             '<div class="jsa-brand-title">JSA<span> RISK ANALYZER</span></div>'
-            '<div class="jsa-brand-sub">Corn Options &amp; Futures — Portfolio Risk Dashboard</div>',
+            f'<div class="jsa-brand-sub">{commodity_name} Options &amp; Futures — Portfolio Risk Dashboard</div>',
             unsafe_allow_html=True,
         )
 

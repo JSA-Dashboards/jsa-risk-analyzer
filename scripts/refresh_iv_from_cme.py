@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from jsa_risk.pricing.commodities import CORN, reference_key
 from jsa_risk.integrations.cme_datamine_client import (
     config_from_dict,
     CmeDataMineUnavailable,
@@ -187,7 +188,7 @@ def main(argv: list[str]) -> int:
                     INSERT (CANONICAL_KEY, IV, SOURCE, AS_OF, UPDATED_BY)
                     VALUES (s.KEY, s.IV, s.SOURCE, s.AS_OF, %s)
                 """,
-                (q.canonical_key, q.iv_pct, q.source_label, as_of,
+                (reference_key(CORN, q.canonical_key), q.iv_pct, q.source_label, as_of,
                  args.updated_by, args.updated_by),
             )
             written += cur.rowcount or 0
