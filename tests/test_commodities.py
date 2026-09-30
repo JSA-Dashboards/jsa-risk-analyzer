@@ -40,3 +40,13 @@ def test_contract_sizes_and_units_are_distinct_by_product_type():
     assert CORN.contract_size == SOYBEANS.contract_size == 5000
     assert LIVE_CATTLE.contract_size == 40000
     assert FEEDER_CATTLE.contract_size == 50000
+
+
+def test_each_commodity_has_its_own_fallback_price_in_its_own_unit():
+    # A shared $4.62 fallback (corn's own, $/bu) fed to a $/lb commodity like cattle makes
+    # every option look absurdly deep in- or out-of-the-money against that phantom price --
+    # each commodity needs a fallback in its own realistic ballpark, not corn's.
+    assert CORN.default_price == 4.62
+    for spec in (SOYBEANS, LIVE_CATTLE, FEEDER_CATTLE):
+        assert spec.default_price != CORN.default_price
+        assert spec.default_price > 0

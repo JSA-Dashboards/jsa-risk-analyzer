@@ -139,3 +139,29 @@ class TestEffectiveUnderlying:
         p = Position(id=6, label="ZCZ26", type="future", qty=1, entry=5.0, underlying_override="U26")
         assert effective_underlying_display(p, today=today_after_sep_roll) == "Sep '26 (override)"
         assert effective_underlying_key(p, today=today_after_sep_roll) == "U26"
+
+
+class TestCommodityAwareDefaultPrice:
+    """Regression test for a real bug: before CommoditySpec.default_price existed, every
+    commodity's "no reference data yet" fallback was corn's own $4.62 (a $/bu figure).
+    Fed to a $/lb commodity like live cattle, real strikes (~$2/lb) looked wildly
+    out-of-the-money against that phantom ~$4.62 "future" -- puts priced with ~0 delta,
+    looking like they'd silently dropped out of the book, when they just hadn't been
+    given a realistic underlying price yet."""
+
+    def test_deep_otm_distortion_when_fed_the_wrong_commoditys_default_price(self):
+        wrong_default_price = 4.62  # corn's $/bu default, fed to a cattle position
+        p = Position(
+            id=1, label="LEG27", type="put", qty=-1, entry=0.03,
+            strike=2.06, expiry_date=date(2026, 6, 1), iv=21.0,
+        )
+        r = eval_position(p, StressState(), lambda _: wrong_default_price, today=TODAY, commodity=LIVE_CATTLE)
+        assert abs(r.delta_d) < 1.0  # the exact symptom reported: delta rounds to 0
+
+    def test_realistic_default_price_avoids_the_distortion(self):
+        p = Position(
+            id=1, label="LEG27", type="put", qty=-1, entry=0.03,
+            strike=2.06, expiry_date=date(2026, 6, 1), iv=21.0,
+        )
+        r = eval_position(p, StressState(), lambda _: LIVE_CATTLE.default_price, today=TODAY, commodity=LIVE_CATTLE)
+        assert abs(r.delta_d) > 1000  # a real, priceable put delta, not a rounding-to-zero sliver

@@ -22,24 +22,33 @@ class CommoditySpec:
     contract_size: int         # units per contract, e.g. 5000 bu, 40000 lb
     listed_months: List[str]   # month letters with a real listed future, in calendar order
     daily_vol: float           # assumed 1-day price-move fraction, for the delta-normal VaR estimate
+    default_price: float       # fallback mark when no real one has been entered/seeded yet --
+                               # a rough, round starting point in this commodity's own unit,
+                               # NOT a live quote. Using corn's $/bu number for a $/lb commodity
+                               # (or vice versa) silently makes every option look absurdly deep
+                               # in- or out-of-the-money, which is exactly what happened before
+                               # this field existed: a live cattle book priced off corn's $4.62
+                               # default showed near-zero delta on puts struck near real cattle
+                               # levels (~$2/lb) because they looked wildly out-of-the-money
+                               # against that phantom ~$4.62/lb "future".
     icon: str = "📈"
 
 
 CORN = CommoditySpec(
     code="ZC", name="Corn", unit="bu", contract_size=5000,
-    listed_months=["H", "K", "N", "U", "Z"], daily_vol=0.016, icon="🌽",
+    listed_months=["H", "K", "N", "U", "Z"], daily_vol=0.016, default_price=4.62, icon="🌽",
 )
 SOYBEANS = CommoditySpec(
     code="ZS", name="Soybeans", unit="bu", contract_size=5000,
-    listed_months=["F", "H", "K", "N", "Q", "U", "X"], daily_vol=0.017, icon="🫘",
+    listed_months=["F", "H", "K", "N", "Q", "U", "X"], daily_vol=0.017, default_price=10.50, icon="🫘",
 )
 LIVE_CATTLE = CommoditySpec(
     code="LE", name="Live Cattle", unit="lb", contract_size=40000,
-    listed_months=["G", "J", "M", "Q", "V", "Z"], daily_vol=0.011, icon="🐄",
+    listed_months=["G", "J", "M", "Q", "V", "Z"], daily_vol=0.011, default_price=2.20, icon="🐄",
 )
 FEEDER_CATTLE = CommoditySpec(
     code="GF", name="Feeder Cattle", unit="lb", contract_size=50000,
-    listed_months=["F", "H", "J", "K", "Q", "U", "V", "X"], daily_vol=0.012, icon="🐂",
+    listed_months=["F", "H", "J", "K", "Q", "U", "V", "X"], daily_vol=0.012, default_price=2.60, icon="🐂",
 )
 
 COMMODITIES: Dict[str, CommoditySpec] = {

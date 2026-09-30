@@ -45,7 +45,7 @@ def render_market_strip(positions: List[Position], commodity: CommoditySpec = CO
         widget_key = f"mkt_price_{commodity.code}_{key}"
         if widget_key not in st.session_state:
             current = marks.get(key)
-            st.session_state[widget_key] = float(current) if current is not None else reference_repo.DEFAULT_CONTRACT_PRICE
+            st.session_state[widget_key] = float(current) if current is not None else commodity.default_price
 
         def _on_change(k=key, wk=widget_key):
             state.set_contract_price(k, st.session_state[wk], source="manual")

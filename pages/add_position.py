@@ -11,7 +11,6 @@ from jsa_risk.state import get_contract_price
 INSTRUMENTS = ["call", "put", "future"]
 
 commodity = state.get_commodity_spec()
-DEFAULT_CONTRACT_PRICE = 4.62
 
 
 def _fmt_dollars_signed(v: float) -> str:
@@ -28,7 +27,7 @@ def _default_draft() -> dict:
     return {
         "label": "",
         "type": "call",
-        "strike": round(DEFAULT_CONTRACT_PRICE, 2),
+        "strike": round(commodity.default_price, 2),
         "expiry": date.today() + timedelta(days=60),
         "qty": 10,
         "iv": 25.0,
@@ -76,7 +75,7 @@ with field_col:
 
     if not is_future:
         draft["strike"] = st.number_input(
-            "Strike", value=float(draft["strike"] or DEFAULT_CONTRACT_PRICE), step=0.01, format="%.2f",
+            "Strike", value=float(draft["strike"] or commodity.default_price), step=0.01, format="%.2f",
         )
         draft["expiry"] = st.date_input(
             "Expiration date", value=draft["expiry"] or (date.today() + timedelta(days=60)),

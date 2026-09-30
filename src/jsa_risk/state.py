@@ -166,7 +166,7 @@ def replace_book(positions: List[Position]) -> int:
 
 def get_contract_price(canonical_key: str) -> float:
     spec = get_commodity_spec()
-    return reference_repo.get_contract_price(reference_key(spec, canonical_key))
+    return reference_repo.get_contract_price(reference_key(spec, canonical_key), default=spec.default_price)
 
 
 def set_contract_price(canonical_key: str, price: float, source: str = "manual") -> None:
