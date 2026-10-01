@@ -1,8 +1,9 @@
 """CME DataMine end-of-day corn options: at-the-money implied vol per contract.
 
 JSA's CME license is DataMine "F&O End of Market Summary Standard" (LIC-A174271), not the
-Options Analytics Greeks REST API that cme_greeks_client.py talks to. That feed now 403s
-permanently for us, so IV_SNAPSHOT is refreshed from DataMine's daily settlement files.
+Options Analytics Greeks REST API -- an earlier integration attempt against that API 403s
+permanently for this account, so IV_SNAPSHOT is refreshed from DataMine's daily settlement
+files instead. DataMine is JSA's only CME data source; there is no Greeks API fallback.
 
 Verified against the live service on 2026-09-20. Things that are not obvious:
 
@@ -83,7 +84,7 @@ SETTLEMENT_NAMES = {"F": "Final", "P": "Preliminary"}
 QUARTERLY_MONTH_LETTERS = {3: "H", 5: "K", 7: "N", 9: "U", 12: "Z"}
 
 # How far from 50 delta the chosen strike may sit before we decline to call it ATM.
-# Matches cme_greeks_client: beyond ~35-65 delta, skew makes the vol unrepresentative.
+# Beyond ~35-65 delta, skew makes the vol unrepresentative.
 _NEAR_THE_MONEY_DELTA_TOLERANCE = 0.15
 
 _token_cache: Dict[Tuple[str, str], Tuple[str, float]] = {}

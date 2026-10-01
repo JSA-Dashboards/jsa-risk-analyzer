@@ -38,14 +38,6 @@ class MassiveConfig:
     base_url: str
 
 
-@dataclass(frozen=True)
-class CmeGreeksConfig:
-    api_id: str
-    password: str
-    base_url: str
-    token_url: str
-
-
 def _section(name: str, friendly_name: str) -> dict:
     if name not in st.secrets:
         raise ConfigError(
@@ -81,21 +73,9 @@ def get_massive_config() -> Optional[MassiveConfig]:
     return MassiveConfig(api_key=s["api_key"], base_url=s.get("base_url", "https://api.massive.com"))
 
 
-def get_cme_config() -> Optional[CmeGreeksConfig]:
-    """Returns None (not an error) when unconfigured — CME Greeks are best-effort/optional
-    per the plan (corn's entitlement on CME's product list isn't yet confirmed)."""
-    if "cme_greeks" not in st.secrets:
-        return None
-    s = st.secrets["cme_greeks"]
-    return CmeGreeksConfig(
-        api_id=s["api_id"], password=s["password"],
-        base_url=s.get("base_url", "https://markets.api.cmegroup.com/greeks/v1"),
-        token_url=s.get("token_url", "https://auth.cmegroup.com/as/token.oauth2"),
-    )
-
-
 def get_cme_datamine_config() -> Optional[CmeDataMineConfig]:
-    """None (not an error) when unconfigured, matching get_cme_config."""
+    """Returns None (not an error) when unconfigured — matches get_massive_config's
+    convention for an optional integration."""
     if "cme_datamine" not in st.secrets:
         return None
     return cme_datamine_config_from_dict(st.secrets["cme_datamine"])
