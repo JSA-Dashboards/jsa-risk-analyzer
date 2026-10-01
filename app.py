@@ -12,6 +12,13 @@ from jsa_risk.ui.theme import render_header_and_disclaimer
 
 st.set_page_config(page_title="JSA Risk Analyzer", page_icon="📈", layout="wide")
 
+# Hide the Streamlit Community Cloud viewer badge (the profile avatar that links
+# to the creator's other apps) for a clean, client-facing footer.
+st.markdown(
+    "<style>[class*='_profileContainer_']{display:none !important;}</style>",
+    unsafe_allow_html=True,
+)
+
 require_password()
 
 init_session_state()
