@@ -1,0 +1,70 @@
+name: Refresh corn IV from CME DataMine
+
+on:
+  schedule:
+    # ~11:00 America/Chicago (CDT most of the year -- GitHub's cron is fixed UTC, so this
+    # drifts an hour during CST, roughly Nov-Mar). Use "Run workflow" below to catch up
+    # on demand any time, regardless of drift.
+    - cron: "0 16 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: refresh-iv-from-cme
+  cancel-in-progress: false
+
+jobs:
+  refresh-iv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Writes a throwaway .streamlit/secrets.toml for this job only, from GitHub's own
+      # encrypted secrets -- the same file format/shape the app and this script already
+      # expect locally, so refresh_iv_from_cme.py itself needs no changes. Values are
+      # passed in as env vars (never interpolated into the shell script text) and
+      # JSON-escaped into valid TOML basic strings, so a password or key containing `$`,
+      # quotes, or newlines (the PEM key) can't corrupt the file or get shell-expanded.
+      - name: Write Streamlit secrets for this job
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY_PEM: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PEM }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+          CME_DATAMINE_API_ID: ${{ secrets.CME_DATAMINE_API_ID }}
+          CME_DATAMINE_PASSWORD: ${{ secrets.CME_DATAMINE_PASSWORD }}
+        run: |
+          mkdir -p .streamlit
+          python - <<'PYEOF'
+          import json
+          import os
+
+          def q(name: str) -> str:
+              return json.dumps(os.environ[name])
+
+          with open(".streamlit/secrets.toml", "w") as f:
+              f.write("[snowflake]\n")
+              f.write(f"account = {q('SNOWFLAKE_ACCOUNT')}\n")
+              f.write(f"user = {q('SNOWFLAKE_USER')}\n")
+              f.write(f"private_key_pem = {q('SNOWFLAKE_PRIVATE_KEY_PEM')}\n")
+              f.write(f"role = {q('SNOWFLAKE_ROLE')}\n")
+              f.write(f"warehouse = {q('SNOWFLAKE_WAREHOUSE')}\n")
+              f.write(f"database = {q('SNOWFLAKE_DATABASE')}\n")
+              f.write(f"schema = {q('SNOWFLAKE_SCHEMA')}\n")
+              f.write("\n[cme_datamine]\n")
+              f.write(f"api_id = {q('CME_DATAMINE_API_ID')}\n")
+              f.write(f"password = {q('CME_DATAMINE_PASSWORD')}\n")
+          PYEOF
+
+      - name: Refresh IV_SNAPSHOT from CME DataMine
+        run: python scripts/refresh_iv_from_cme.py --updated-by github-actions
