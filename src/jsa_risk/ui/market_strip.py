@@ -58,24 +58,26 @@ def render_market_strip(positions: List[Position], commodity: CommoditySpec = CO
 
 
 def render_massive_refresh(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
+    """Button + status, stacked (not side-by-side columns) so this renders cleanly
+    whether called full-width or wrapped in an external column, e.g. alongside
+    render_iv_refresh on the dashboard."""
     from jsa_risk.config import get_massive_config
     from jsa_risk.integrations import massive_client
 
     config = get_massive_config()
     canon_keys = sorted({effective_underlying_key(p, commodity=commodity) for p in positions})
 
-    btn_col, msg_col = st.columns([1, 4])
-    clicked = btn_col.button("↻ Update prices from Massive", disabled=config is None)
+    clicked = st.button("↻ Update prices from Massive", disabled=config is None)
 
     if config is None:
-        msg_col.caption("Massive isn't configured — add a [massive] block to .streamlit/secrets.toml to enable live prices.")
+        st.caption("Massive isn't configured — add a [massive] block to .streamlit/secrets.toml to enable live prices.")
     elif clicked:
         with st.spinner(f"Fetching {', '.join(canon_keys) or 'nothing'} from Massive…"):
             try:
                 result = massive_client.fetch_futures_prices(config, canon_keys, commodity.code)
             except Exception as e:
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=False, error_message=str(e))
-                msg_col.error(f"Couldn't fetch from Massive: {e}")
+                st.error(f"Couldn't fetch from Massive: {e}")
             else:
                 for key, price in result.updated.items():
                     state.set_contract_price(key, price, source="massive")
@@ -96,8 +98,53 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
                     )
                     st.rerun()
                 else:
-                    msg_col.warning("No matching contracts returned from Massive.")
+                    st.warning("No matching contracts returned from Massive.")
     st.caption("Massive futures prices are delayed ~10 minutes — not a real-time or executable quote.")
+
+
+def render_iv_refresh(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
+    """Re-pulls each option position's implied vol from IV_SNAPSHOT -- this commodity's
+    CME DataMine feed sitting in Snowflake (see scripts/refresh_iv_from_cme.py, run daily
+    by .github/workflows/refresh-iv.yml) -- so Greeks recompute against the latest
+    settlement vol, the same way "Update prices from Massive" refreshes the futures mark
+    Greeks are priced against. Futures carry no IV and are skipped; a position whose
+    underlying has no snapshot row yet is left untouched rather than silently overwritten
+    with the generic no-data-yet default (reference_repo.DEFAULT_IV)."""
+    option_positions = [p for p in positions if p.type != "future"]
+    snapshot = {row["key"]: row["iv"] for row in state.get_iv_provenance()}
+
+    clicked = st.button("↻ Update Greeks from CME", disabled=not option_positions)
+
+    if not option_positions:
+        st.caption("No option positions in the book to update.")
+    elif clicked:
+        touched_keys = set()
+        missing_keys = set()
+        for p in option_positions:
+            key = effective_underlying_key(p, commodity=commodity)
+            if key not in snapshot:
+                missing_keys.add(key)
+                continue
+            state.update_position_field(p.id, "IV", snapshot[key])
+            state.update_position_field(p.id, "IV_ESTIMATED", True)
+            touched_keys.add(key)
+
+        if touched_keys:
+            updated_str = ", ".join(f"{k} {snapshot[k]:.2f}%" for k in sorted(touched_keys))
+            msg = f"Updated implied vol for {len(touched_keys)} contract(s) from the CME snapshot: {updated_str}."
+            if missing_keys:
+                msg += f" No CME data yet for {', '.join(sorted(missing_keys))} — left as-is."
+            # Same reason as the Massive flow: rerun so everything above (already rendered
+            # off the pre-update IV) recomputes Greeks from the fresh values.
+            st.session_state["_flash_iv_update"] = msg
+            st.rerun()
+        else:
+            st.warning(f"No CME snapshot data yet for any of this book's contracts ({', '.join(sorted(missing_keys))}).")
+    st.caption(
+        "Pulls each contract's latest settlement vol from CME DataMine (refreshed daily, "
+        "or on demand via GitHub Actions → Run workflow) — one value per underlying, "
+        "shared across its options."
+    )
 
 
 # Vols come from a scheduled refresh, not from anything the viewer can see happening, so

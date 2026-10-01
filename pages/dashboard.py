@@ -11,6 +11,7 @@ from jsa_risk.ui.charts import (
 from jsa_risk.ui.kpi import render_kpi_strip, render_var_panel
 from jsa_risk.ui.market_strip import (
     render_iv_provenance,
+    render_iv_refresh,
     render_market_strip,
     render_massive_refresh,
 )
@@ -24,7 +25,8 @@ init_session_state()
 
 flash_added = st.session_state.pop("_flash_added", None)
 flash_market = st.session_state.pop("_flash_market_update", None)
-flash = flash_added or flash_market
+flash_iv = st.session_state.pop("_flash_iv_update", None)
+flash = flash_added or flash_market or flash_iv
 if flash:
     st.success(flash)
 
@@ -53,7 +55,11 @@ with c4:
 st.markdown("---")
 
 st.markdown("###### Live market data")
-render_massive_refresh(positions, commodity)
+price_col, greeks_col = st.columns(2)
+with price_col:
+    render_massive_refresh(positions, commodity)
+with greeks_col:
+    render_iv_refresh(positions, commodity)
 render_market_strip(positions, commodity)
 render_iv_provenance(positions, commodity)
 
