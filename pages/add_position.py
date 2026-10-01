@@ -10,6 +10,8 @@ from jsa_risk.state import get_contract_price
 
 INSTRUMENTS = ["call", "put", "future"]
 
+# Defensive, not redundant -- see the matching comment in pages/dashboard.py.
+state.init_session_state()
 commodity = state.get_commodity_spec()
 
 

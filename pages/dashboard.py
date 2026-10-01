@@ -1,6 +1,6 @@
 import streamlit as st
 
-from jsa_risk.state import get_commodity_spec, get_contract_price, visible_positions
+from jsa_risk.state import get_commodity_spec, get_contract_price, init_session_state, visible_positions
 from jsa_risk.ui.blotter import render_editable_blotter
 from jsa_risk.ui.charts import (
     render_delta_scenario,
@@ -14,6 +14,13 @@ from jsa_risk.ui.market_strip import (
     render_market_strip,
     render_massive_refresh,
 )
+
+# Defensive, not redundant: app.py already calls this before dispatching to a page, but
+# Streamlit Cloud reconnecting a browser tab to a session the server no longer has state
+# for (e.g. after the app wakes from being asleep) can land directly on a page's script
+# without that preamble having run for *this* render -- init_session_state() is written
+# to be idempotent for exactly this reason (every page calls it at the top).
+init_session_state()
 
 flash_added = st.session_state.pop("_flash_added", None)
 flash_market = st.session_state.pop("_flash_market_update", None)

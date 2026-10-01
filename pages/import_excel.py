@@ -15,6 +15,9 @@ from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_na
 
 _OVERRIDE_RE = re.compile(r"^[A-Z]\d{2}$")
 
+# Defensive, not redundant -- see the matching comment in pages/dashboard.py.
+state.init_session_state()
+
 
 def _on_import_commodity_change() -> None:
     # clear_import_wizard=False: keeps whatever sheet is already pasted/parsed/staged so
