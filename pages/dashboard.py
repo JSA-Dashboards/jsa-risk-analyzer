@@ -80,7 +80,10 @@ render_greeks_bars(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
 st.markdown("###### P&L scenario heatmap")
-st.caption("Price shock (x-axis, ¢) vs. vol shock (y-axis, %) layered on top of the current stress scenario.")
+st.caption(
+    "Price shock (x-axis, % of each contract's value in 5% steps, with the ≈¢ per "
+    f"{commodity.unit} equivalent beneath) vs. vol shock (y-axis, %) layered on top of the current stress scenario."
+)
 render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity)
 
 st.markdown("###### Delta scenario")
@@ -88,7 +91,10 @@ render_delta_scenario(positions, stress, get_contract_price, commodity=commodity
 
 st.markdown("---")
 st.markdown("###### Portfolio payoff")
-st.caption(f"P&L vs. a {commodity.name.lower()} futures price shock, current vol & time.")
+st.caption(
+    f"P&L vs. a {commodity.name.lower()} futures price shock (% of contract value, with the ≈¢ per "
+    f"{commodity.unit} equivalent), current vol & time."
+)
 render_payoff_chart(positions, stress, get_contract_price, commodity=commodity)
 
 st.markdown("---")

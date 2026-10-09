@@ -11,10 +11,15 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
-from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at
+from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at, portfolio_reference_price
 from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
-PRICE_SHOCKS = [-0.50, -0.40, -0.30, -0.20, -0.10, 0.0, 0.10, 0.20, 0.30, 0.40, 0.50]
+# Price shocks are a percent of each contract's own value -- not a flat grain-price move --
+# so the same grid works for corn, soybeans, and cattle alike. Cents-per-unit labels are
+# derived from the portfolio's reference price (see portfolio_reference_price).
+PRICE_SHOCK_STEP = 5      # % per increment
+DEFAULT_SHOCK_RANGE = 25  # default window: +/-25% of contract value
+PRICE_SHOCKS = [float(p) for p in range(-DEFAULT_SHOCK_RANGE, DEFAULT_SHOCK_RANGE + 1, PRICE_SHOCK_STEP)]
 VOL_SHOCKS_BOTTOM_UP = [-30, -15, 0, 15, 30]  # last item renders at the top of the heatmap
 ACCENT = "#3987e5"
 MUTED = "#898781"
@@ -26,13 +31,34 @@ EXPIRY_COLORS = ["#e8a33d", "#9b6bce", "#4fb8af", "#d9779a", "#c9a227", "#6a8caf
 
 
 def _fmt_cents(v: float) -> str:
+    """`v` is a price move in dollars per unit; shown as cents, with a decimal under 10¢
+    so small moves (e.g. 5% of a cheap contract) don't all round to the same label."""
+    cents = abs(v) * 100
     sign = "-" if v < 0 else ("+" if v > 0 else "")
-    return f"{sign}{round(abs(v) * 100)}¢"
+    body = f"{cents:.1f}" if 0 < cents < 10 else f"{cents:.0f}"
+    return f"{sign}{body}¢"
 
 
 def _fmt_pct_signed(v: float) -> str:
     sign = "+" if v > 0 else ""
     return f"{sign}{v:g}%"
+
+
+def _shock_cents(pct: float, ref_price: float) -> float:
+    return pct / 100 * ref_price
+
+
+def _shock_tick(pct: float, ref_price: float) -> str:
+    """Two-line axis tick: the % shock over its cents-per-unit equivalent."""
+    return f"{_fmt_pct_signed(pct)}<br>{_fmt_cents(_shock_cents(pct, ref_price))}"
+
+
+def _shock_hover(pct: float, ref_price: float) -> str:
+    return f"{_fmt_pct_signed(pct)} ({_fmt_cents(_shock_cents(pct, ref_price))})"
+
+
+def _shock_axis_title(ref_price: float, commodity: CommoditySpec) -> str:
+    return f"Price shock (% of contract · ≈¢/{commodity.unit} at ${ref_price:.2f} avg) →"
 
 
 def _fmt_dollars_signed(v: float) -> str:
@@ -59,7 +85,9 @@ def render_pnl_heatmap(
     # current-scenario cell, landed off-axis (Plotly silently extended the axis with new
     # tick positions instead of aligning to the heatmap's categories). Numeric coordinates
     # end that ambiguity -- the heatmap and the highlight now share one unambiguous grid.
-    price_labels = [_fmt_cents(p) for p in PRICE_SHOCKS]
+    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
+    price_ticks = [_shock_tick(p, ref_price) for p in PRICE_SHOCKS]
+    price_hover = [_shock_hover(p, ref_price) for p in PRICE_SHOCKS]
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
     x_idx = list(range(len(PRICE_SHOCKS)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
@@ -69,7 +97,7 @@ def render_pnl_heatmap(
     ]
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
     text = [[_fmt_dollars_signed(v) for v in row] for row in z]
-    customdata = [[[price_labels[j], vol_labels[i]] for j in x_idx] for i in y_idx]
+    customdata = [[[price_hover[j], vol_labels[i]] for j in x_idx] for i in y_idx]
 
     fig = go.Figure(
         go.Heatmap(
@@ -105,10 +133,11 @@ def render_pnl_heatmap(
         )
     )
     fig.update_layout(
-        height=300,
+        height=340,
         margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(title="Price shock →", tickvals=x_idx, ticktext=price_labels),
-        yaxis=dict(title="Vol shock ↑", tickvals=y_idx, ticktext=vol_labels),
+        xaxis=dict(title=_shock_axis_title(ref_price, commodity), tickvals=x_idx, ticktext=price_ticks,
+                   automargin=True),
+        yaxis=dict(title="Vol shock ↑", tickvals=y_idx, ticktext=vol_labels, automargin=True),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=11),
@@ -124,7 +153,10 @@ def render_delta_scenario(
     commodity: CommoditySpec = CORN,
 ) -> None:
     unit = commodity.unit
-    price_labels = [_fmt_cents(p) for p in PRICE_SHOCKS]
+    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
+    price_ticks = [_shock_tick(p, ref_price) for p in PRICE_SHOCKS]
+    price_hover = [_shock_hover(p, ref_price) for p in PRICE_SHOCKS]
+    x_idx = list(range(len(PRICE_SHOCKS)))
     row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity) for ps in PRICE_SHOCKS]
     max_abs = max(1.0, max(abs(v) for v in row))
     base = row[PRICE_SHOCKS.index(0.0)]
@@ -132,7 +164,7 @@ def render_delta_scenario(
 
     fig = go.Figure(
         go.Heatmap(
-            x=price_labels,
+            x=x_idx,
             y=[f"Net delta ({unit})"],
             z=[row],
             colorscale="RdYlGn",
@@ -142,13 +174,17 @@ def render_delta_scenario(
             text=text,
             texttemplate="%{text}",
             textfont={"size": 11},
-            hovertemplate=f"Price %{{x}}<br>Net delta: %{{text}} {unit}<extra></extra>",
+            customdata=[price_hover],
+            hovertemplate=f"Price %{{customdata}}<br>Net delta: %{{text}} {unit}<extra></extra>",
             showscale=False,
         )
     )
     fig.update_layout(
-        height=110,
+        height=150,
         margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(title=_shock_axis_title(ref_price, commodity), tickvals=x_idx, ticktext=price_ticks,
+                   automargin=True),
+        yaxis=dict(automargin=True),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(size=11),
@@ -158,14 +194,10 @@ def render_delta_scenario(
     lo, hi = row[0], row[-1]
     st.caption(
         f"Cell = net position delta ({unit}) under that price shock, sign colored long (green) vs short (red). "
-        f"At -50¢: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
-        f"At +50¢: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) vs current {base:,.0f} {unit}."
+        f"At {_shock_hover(PRICE_SHOCKS[0], ref_price)}: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
+        f"At {_shock_hover(PRICE_SHOCKS[-1], ref_price)}: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) "
+        f"vs current {base:,.0f} {unit}."
     )
-
-
-def _frange(start: float, stop: float, step: float) -> List[float]:
-    n = round((stop - start) / step)
-    return [round(start + i * step, 2) for i in range(n + 1)]
 
 
 def render_payoff_chart(
@@ -177,10 +209,14 @@ def render_payoff_chart(
 ) -> None:
     # Compute well past the default view so zooming/panning out reveals a real, continuing
     # curve instead of hitting blank space at the edge of what used to be the only data.
-    compute_range = 1.50
-    default_view = 0.50
-    xs = _frange(-compute_range, compute_range, 0.10)
-    x_cents = [round(s * 100) for s in xs]
+    compute_range = DEFAULT_SHOCK_RANGE * 3
+    default_view = DEFAULT_SHOCK_RANGE
+    xs = [float(p) for p in range(-compute_range, compute_range + 1, PRICE_SHOCK_STEP)]  # % of contract value
+    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
+    # Tick at every step inside the default window, then only at the wider quarter marks so
+    # a zoomed-out view doesn't turn the axis into an unreadable wall of two-line labels.
+    tick_vals = [x for x in xs if abs(x) <= default_view or x % DEFAULT_SHOCK_RANGE == 0]
+    tick_text = [_shock_tick(x, ref_price) for x in tick_vals]
 
     # One expiry date per distinct expiration among current option positions -- not just
     # the nearest -- so a book with staggered expiries shows every real decay cliff.
@@ -210,7 +246,7 @@ def render_payoff_chart(
     # (much wider) computed dataset -- otherwise the visible curve gets squashed into a
     # sliver by extremes that only occur far outside the default zoom.
     visible_ys = [
-        y for h in horizons for x, y in zip(x_cents, h["ys"]) if abs(x) <= default_view * 100
+        y for h in horizons for x, y in zip(xs, h["ys"]) if abs(x) <= default_view
     ]
     y_lo, y_hi = min(visible_ys), max(visible_ys)
     y_pad = max((y_hi - y_lo) * 0.1, 1.0)
@@ -219,17 +255,20 @@ def render_payoff_chart(
     today_h = horizons[0]
     fig.add_trace(
         go.Scatter(
-            x=x_cents, y=today_h["ys"], mode="lines", name=today_h["label"],
+            x=xs, y=today_h["ys"], mode="lines", name=today_h["label"],
             line=dict(width=today_h["width"], color=today_h["color"]),
             fill="tozeroy", fillcolor="rgba(57,135,229,0.12)",
+            customdata=[_shock_hover(x, ref_price) for x in xs],
+            hovertemplate="%{y:$,.0f} · shock %{customdata}<extra>" + today_h["label"] + "</extra>",
         )
     )
     for h in horizons[1:]:
         fig.add_trace(
             go.Scatter(
-                x=x_cents, y=h["ys"], mode="lines", name=h["label"],
+                x=xs, y=h["ys"], mode="lines", name=h["label"],
                 line=dict(width=h["width"], color=h["color"], dash=h["dash"]),
                 opacity=h["opacity"],
+                hovertemplate="%{y:$,.0f}<extra>" + h["label"] + "</extra>",
             )
         )
     fig.add_trace(
@@ -242,20 +281,26 @@ def render_payoff_chart(
     fig.add_vline(x=0, line_dash="dot", line_color=MUTED)
     fig.update_layout(
         hovermode="x unified",
-        xaxis_title="Price shock (¢)",
-        xaxis=dict(range=[-default_view * 100, default_view * 100]),
+        xaxis=dict(
+            title=_shock_axis_title(ref_price, commodity),
+            range=[-default_view, default_view],
+            tickvals=tick_vals, ticktext=tick_text,
+            ticksuffix="%", automargin=True,
+        ),
         yaxis_title="Book P&L ($)",
         yaxis=dict(tickprefix="$", separatethousands=True, range=[y_lo - y_pad, y_hi + y_pad]),
         height=520,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10, r=30, t=10, b=10),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
-        f"Current mark: **{_fmt_dollars_signed(cur_val)}** at 0¢ shock (blue dot). Other lines hold vol at "
-        f"the current scenario and roll time forward — theta & gamma reshape the curve as they decay."
+        f"Current mark: **{_fmt_dollars_signed(cur_val)}** at a 0% shock (blue dot). Default view is "
+        f"±{DEFAULT_SHOCK_RANGE}% of contract value; drag or zoom out to see up to ±{compute_range}%. "
+        f"Other lines hold vol at the current scenario and roll time forward — theta & gamma "
+        f"reshape the curve as they decay."
     )
 
 
