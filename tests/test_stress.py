@@ -165,3 +165,31 @@ class TestCommodityAwareDefaultPrice:
         )
         r = eval_position(p, StressState(), lambda _: LIVE_CATTLE.default_price, today=TODAY, commodity=LIVE_CATTLE)
         assert abs(r.delta_d) > 1000  # a real, priceable put delta, not a rounding-to-zero sliver
+
+
+class TestCashPosition:
+    def _cash(self, qty=2.5, entry=4.80):
+        return Position(id=9, label="CASH ZCZ26", type="future", qty=qty, entry=entry,
+                        underlying_override="Z26", is_cash=True)
+
+    def test_cash_is_risked_exactly_like_a_future_on_its_contract(self):
+        cash = eval_position(self._cash(qty=2.5), StressState(), price_book, today=TODAY)
+        fut = eval_position(make_future(qty=2.5, entry=4.80), StressState(), price_book, today=TODAY)
+        assert cash.delta_d == fut.delta_d == 2.5 * 5000
+        assert cash.pnl == pytest.approx(fut.pnl)
+        assert cash.gamma_d == cash.vega_d == cash.theta_d == 0.0
+
+    def test_fractional_contracts_are_allowed_for_cash(self):
+        r = eval_position(self._cash(qty=0.5), StressState(), price_book, today=TODAY)
+        assert r.delta_d == 2500
+
+    def test_cash_prices_off_the_chosen_contract_not_its_label(self):
+        p = Position(id=9, label="CASH ZCZ26", type="future", qty=1, entry=5.0,
+                     underlying_override="U26", is_cash=True)
+        assert eval_position(p, StressState(), price_book, today=TODAY).price == price_book("U26")
+
+    def test_cash_display_is_tagged_cash_not_override(self):
+        assert effective_underlying_display(self._cash(), today=TODAY) == "Dec '26 (cash)"
+
+    def test_positions_are_not_cash_by_default(self):
+        assert make_future().is_cash is False

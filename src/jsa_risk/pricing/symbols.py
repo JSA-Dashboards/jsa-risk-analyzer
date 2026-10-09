@@ -138,3 +138,20 @@ def format_canonical_key(key: Optional[str]) -> str:
     if len(s) != 3 or s[0] not in MONTH_NAMES or not s[1:].isdigit():
         return s or "—"
     return f"{MONTH_NAMES[s[0]]} '{s[1:]}"
+
+
+def upcoming_contract_keys(
+    commodity: CommoditySpec = CORN, today: Optional[date] = None, count: int = 4
+) -> list:
+    """The next `count` listed contracts that haven't yet rolled off as of `today`, as
+    canonical keys in calendar order (e.g. ["Z26", "H27", ...]). Same roll rule as
+    decode_contract_symbol: a contract counts as rolled once its own month has begun."""
+    today = today or date.today()
+    keys: list = []
+    for year in range(today.year, today.year + 4):
+        for month in commodity.listed_months:
+            if date(year, MONTH_NUMBERS[month], 1) > today:
+                keys.append(f"{month}{year % 100:02d}")
+                if len(keys) == count:
+                    return keys
+    return keys

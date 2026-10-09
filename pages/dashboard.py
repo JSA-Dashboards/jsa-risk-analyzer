@@ -2,6 +2,7 @@ import streamlit as st
 
 from jsa_risk.state import get_commodity_spec, get_contract_price, init_session_state, visible_positions
 from jsa_risk.ui.blotter import render_editable_blotter
+from jsa_risk.ui.cash_position import render_cash_position_entry
 from jsa_risk.ui.charts import (
     render_delta_scenario,
     render_greeks_bars,
@@ -62,6 +63,10 @@ with greeks_col:
     render_iv_refresh(positions, commodity)
 render_market_strip(positions, commodity)
 render_iv_provenance(positions, commodity)
+
+st.markdown("---")
+
+render_cash_position_entry(positions, commodity)
 
 st.markdown("---")
 

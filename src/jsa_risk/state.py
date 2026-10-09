@@ -154,14 +154,17 @@ def replace_book(positions: List[Position]) -> int:
     "importing replaces the whole book" UX carried over from the original tool. Returns
     the count of positions replaced (there's no batch/history table anymore, so nothing
     else to hand back)."""
+    # Cash positions are entered by hand on the dashboard (a broker export doesn't carry
+    # them), so an import replaces the exported positions but leaves the cash in place.
+    kept_cash = [p for p in st.session_state.positions if p.is_cash]
     next_id = 1
     numbered = []
-    for p in positions:
+    for p in list(positions) + kept_cash:
         numbered.append(replace(p, id=next_id))
         next_id += 1
     st.session_state.positions = numbered
     st.session_state.next_position_id = next_id
-    return len(numbered)
+    return len(positions)
 
 
 def get_contract_price(canonical_key: str) -> float:

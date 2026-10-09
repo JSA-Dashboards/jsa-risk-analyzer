@@ -20,11 +20,14 @@ class Position:
     are None for futures. `qty` is signed (positive = long, negative = short).
     `underlying_override`, when set (a canonical key like "Z26"), takes precedence over
     the underlying auto-derived from `label` -- a manual escape hatch for the cases the
-    date-based roll rule in symbols.py doesn't (or shouldn't) cover on its own."""
+    date-based roll rule in symbols.py doesn't (or shouldn't) cover on its own.
+    `is_cash` marks a physical/cash position: priced and risked exactly like a future on
+    the contract in `underlying_override`, but it has no expiry, and `qty` may be
+    fractional (cash is held in bushels/pounds, which needn't be a whole contract)."""
     id: int
     label: str
     type: str
-    qty: int
+    qty: float
     entry: float
     strike: Optional[float] = None
     expiry_date: Optional[date] = None
@@ -33,6 +36,7 @@ class Position:
     last_tick: Optional[float] = None
     import_mark: Optional[float] = None
     underlying_override: Optional[str] = None
+    is_cash: bool = False
 
 
 def effective_underlying_key(
@@ -56,7 +60,8 @@ def effective_underlying_display(
     contract it's actually being priced against."""
     from .symbols import contract_display_name, format_canonical_key
     if position.underlying_override:
-        return f"{format_canonical_key(position.underlying_override)} (override)"
+        tag = "cash" if position.is_cash else "override"
+        return f"{format_canonical_key(position.underlying_override)} ({tag})"
     return contract_display_name(position.label, today, commodity)
 
 

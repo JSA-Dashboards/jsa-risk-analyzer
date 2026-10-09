@@ -44,7 +44,7 @@ def build_blotter_dataframe(
             "id": p.id,
             "Contract": p.label,
             "Underlying": effective_underlying_display(p, commodity=commodity),
-            "Type": p.type,
+            "Type": "cash" if p.is_cash else p.type,
             "Strike": p.strike,
             "DTE (d)": dte,
             "Qty": p.qty,
@@ -63,6 +63,7 @@ def build_blotter_dataframe(
 
 def _computed_column_config(commodity: CommoditySpec) -> dict:
     return {
+        "Qty": st.column_config.NumberColumn(format="%g"),
         "Strike": st.column_config.NumberColumn(format="$%.2f"),
         "Entry": st.column_config.NumberColumn(format="$%.4f"),
         "Mark": st.column_config.NumberColumn(format="$%.4f"),
@@ -139,7 +140,9 @@ def render_editable_blotter(
             to_delete.append(position_id)
             continue
         if "Qty" in edits:
-            state.update_position_field(position_id, "QTY", int(edits["Qty"]))
+            is_cash = any(p.id == position_id and p.is_cash for p in positions)
+            qty = float(edits["Qty"]) if is_cash else int(edits["Qty"])
+            state.update_position_field(position_id, "QTY", qty)
             wrote_any = True
         if "Entry" in edits:
             state.update_position_field(position_id, "ENTRY", float(edits["Entry"]))

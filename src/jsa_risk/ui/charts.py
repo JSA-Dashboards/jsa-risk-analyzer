@@ -260,6 +260,8 @@ def render_payoff_chart(
 
 
 def _contract_group_key(p: Position) -> str:
+    if p.is_cash:
+        return f"Futures cash {p.underlying_override}"
     return p.expiry_date.isoformat() if p.expiry_date else f"Futures {p.label}"
 
 

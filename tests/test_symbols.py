@@ -124,3 +124,16 @@ class TestOtherCommodities:
         cattle_decoded = decode_contract_symbol("LEH26", today=date(2026, 1, 1), commodity=LIVE_CATTLE)
         assert corn_decoded.is_serial is False
         assert cattle_decoded.is_serial is True
+
+
+def test_upcoming_contract_keys_skips_contracts_that_have_started():
+    from jsa_risk.pricing.symbols import upcoming_contract_keys
+    # Oct 9 2026: Sep '26 has rolled, so the first corn contract is Dec '26.
+    assert upcoming_contract_keys(today=date(2026, 10, 9)) == ["Z26", "H27", "K27", "N27"]
+    # Dec 1 counts as started, so December itself is excluded.
+    assert upcoming_contract_keys(today=date(2026, 12, 1), count=2) == ["H27", "K27"]
+
+
+def test_upcoming_contract_keys_follows_each_commoditys_own_months():
+    from jsa_risk.pricing.symbols import upcoming_contract_keys
+    assert upcoming_contract_keys(SOYBEANS, today=date(2026, 10, 9), count=3) == ["X26", "F27", "H27"]

@@ -58,7 +58,7 @@ st.caption(
     "and order don't need to match, you'll map them next. Every row needs a Contract symbol. "
     f"Strike, entry/premium, and last-tick prices are all read as cents/{commodity.unit}. If your "
     "Qty column is unsigned, also map Position (\"Net Long\"/\"Net Short\"/\"Net\") to supply the "
-    "sign — a bare \"Net\" means flat and won't import. **Importing replaces your whole book** — "
+    "sign — a bare \"Net\" means flat and won't import. **Importing replaces your whole book** (cash positions you've entered are kept) — "
     "this only affects your own browser session, never anyone else's."
 )
 
@@ -239,10 +239,13 @@ if "import_staging" in st.session_state:
             canonical_contract_key=lambda label: canonical_contract_key(label, commodity=commodity),
             underlying_overrides=new_overrides,
         )
+        kept_cash = sum(1 for p in state.visible_positions() if p.is_cash)
         count = state.replace_book(positions)
         for k in ["import_headers", "import_rows", "import_mapping", "import_staging", "import_underlying_overrides"]:
             st.session_state.pop(k, None)
         msg = f"Replaced your book with {count} position(s)."
+        if kept_cash:
+            msg += f" Kept your {kept_cash} cash position(s)."
         if estimated_count:
             msg += f" {estimated_count} had no IV in the sheet — filled from the market snapshot."
         st.success(msg)
