@@ -17,9 +17,24 @@ from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_po
 # Price shocks are a percent of each contract's own value -- not a flat grain-price move --
 # so the same grid works for corn, soybeans, and cattle alike. Cents-per-unit labels are
 # derived from the portfolio's reference price (see portfolio_reference_price).
-PRICE_SHOCK_STEP = 5      # % per increment
-DEFAULT_SHOCK_RANGE = 25  # default window: +/-25% of contract value
-PRICE_SHOCKS = [float(p) for p in range(-DEFAULT_SHOCK_RANGE, DEFAULT_SHOCK_RANGE + 1, PRICE_SHOCK_STEP)]
+#
+# The window (half-range %, step %) is user-selectable because what counts as a realistic
+# stress differs a lot by product: 1% of live cattle is ~2.4¢/lb, so +/-25% (~60¢) is far
+# more dramatic there than it is for corn.
+SHOCK_WINDOWS = {
+    "±5% · 1% steps": (5, 1),
+    "±10% · 2% steps": (10, 2),
+    "±25% · 5% steps": (25, 5),
+}
+DEFAULT_SHOCK_WINDOW = "±10% · 2% steps"
+
+
+def shock_grid(window: str = DEFAULT_SHOCK_WINDOW) -> Tuple[int, int, List[float]]:
+    """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0])."""
+    half_range, step = SHOCK_WINDOWS.get(window, SHOCK_WINDOWS[DEFAULT_SHOCK_WINDOW])
+    return half_range, step, [float(p) for p in range(-half_range, half_range + 1, step)]
+
+
 VOL_SHOCKS_BOTTOM_UP = [-30, -15, 0, 15, 30]  # last item renders at the top of the heatmap
 ACCENT = "#3987e5"
 MUTED = "#898781"
@@ -77,7 +92,9 @@ def render_pnl_heatmap(
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
+    shock_window: str = DEFAULT_SHOCK_WINDOW,
 ) -> None:
+    _, _, price_shocks = shock_grid(shock_window)
     # Purely numeric x/y (0,1,2,...) with cosmetic tick labels via update_xaxes/yaxes,
     # rather than handing the Heatmap trace the label strings directly. Plotly's implicit
     # category-axis positioning turned out unreliable for a second overlaid trace: both a
@@ -86,13 +103,13 @@ def render_pnl_heatmap(
     # tick positions instead of aligning to the heatmap's categories). Numeric coordinates
     # end that ambiguity -- the heatmap and the highlight now share one unambiguous grid.
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
-    price_ticks = [_shock_tick(p, ref_price) for p in PRICE_SHOCKS]
-    price_hover = [_shock_hover(p, ref_price) for p in PRICE_SHOCKS]
+    price_ticks = [_shock_tick(p, ref_price) for p in price_shocks]
+    price_hover = [_shock_hover(p, ref_price) for p in price_shocks]
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
-    x_idx = list(range(len(PRICE_SHOCKS)))
+    x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
     z = [
-        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity) for ps in PRICE_SHOCKS]
+        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity) for ps in price_shocks]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
@@ -118,7 +135,7 @@ def render_pnl_heatmap(
     )
     # Outline the current-scenario (0 price, 0 vol) cell -- a closed line path at
     # +/-0.5 index either side of its center, tracing exactly the cell's own boundary.
-    base_price_idx = PRICE_SHOCKS.index(0.0)
+    base_price_idx = price_shocks.index(0.0)
     base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
     px0, px1 = base_price_idx - 0.5, base_price_idx + 0.5
     py0, py1 = base_vol_idx - 0.5, base_vol_idx + 0.5
@@ -151,15 +168,17 @@ def render_delta_scenario(
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
+    shock_window: str = DEFAULT_SHOCK_WINDOW,
 ) -> None:
     unit = commodity.unit
+    _, _, price_shocks = shock_grid(shock_window)
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
-    price_ticks = [_shock_tick(p, ref_price) for p in PRICE_SHOCKS]
-    price_hover = [_shock_hover(p, ref_price) for p in PRICE_SHOCKS]
-    x_idx = list(range(len(PRICE_SHOCKS)))
-    row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity) for ps in PRICE_SHOCKS]
+    price_ticks = [_shock_tick(p, ref_price) for p in price_shocks]
+    price_hover = [_shock_hover(p, ref_price) for p in price_shocks]
+    x_idx = list(range(len(price_shocks)))
+    row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity) for ps in price_shocks]
     max_abs = max(1.0, max(abs(v) for v in row))
-    base = row[PRICE_SHOCKS.index(0.0)]
+    base = row[price_shocks.index(0.0)]
     text = [[f"{v:,.0f}" for v in row]]
 
     fig = go.Figure(
@@ -194,8 +213,8 @@ def render_delta_scenario(
     lo, hi = row[0], row[-1]
     st.caption(
         f"Cell = net position delta ({unit}) under that price shock, sign colored long (green) vs short (red). "
-        f"At {_shock_hover(PRICE_SHOCKS[0], ref_price)}: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
-        f"At {_shock_hover(PRICE_SHOCKS[-1], ref_price)}: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) "
+        f"At {_shock_hover(price_shocks[0], ref_price)}: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
+        f"At {_shock_hover(price_shocks[-1], ref_price)}: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) "
         f"vs current {base:,.0f} {unit}."
     )
 
@@ -206,16 +225,17 @@ def render_payoff_chart(
     get_contract_price: Callable[[str], float],
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
+    shock_window: str = DEFAULT_SHOCK_WINDOW,
 ) -> None:
     # Compute well past the default view so zooming/panning out reveals a real, continuing
     # curve instead of hitting blank space at the edge of what used to be the only data.
-    compute_range = DEFAULT_SHOCK_RANGE * 3
-    default_view = DEFAULT_SHOCK_RANGE
-    xs = [float(p) for p in range(-compute_range, compute_range + 1, PRICE_SHOCK_STEP)]  # % of contract value
+    default_view, step, _ = shock_grid(shock_window)
+    compute_range = default_view * 3
+    xs = [float(p) for p in range(-compute_range, compute_range + 1, step)]  # % of contract value
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
-    # Tick at every step inside the default window, then only at the wider quarter marks so
-    # a zoomed-out view doesn't turn the axis into an unreadable wall of two-line labels.
-    tick_vals = [x for x in xs if abs(x) <= default_view or x % DEFAULT_SHOCK_RANGE == 0]
+    # Tick at every step inside the default window, then only at multiples of the window
+    # beyond it, so a zoomed-out view doesn't turn the axis into a wall of two-line labels.
+    tick_vals = [x for x in xs if abs(x) <= default_view or x % default_view == 0]
     tick_text = [_shock_tick(x, ref_price) for x in tick_vals]
 
     # One expiry date per distinct expiration among current option positions -- not just
@@ -298,7 +318,7 @@ def render_payoff_chart(
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
         f"Current mark: **{_fmt_dollars_signed(cur_val)}** at a 0% shock (blue dot). Default view is "
-        f"±{DEFAULT_SHOCK_RANGE}% of contract value; drag or zoom out to see up to ±{compute_range}%. "
+        f"±{default_view}% of contract value; drag or zoom out to see up to ±{compute_range}%. "
         f"Other lines hold vol at the current scenario and roll time forward — theta & gamma "
         f"reshape the curve as they decay."
     )

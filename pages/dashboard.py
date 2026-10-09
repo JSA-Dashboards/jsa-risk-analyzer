@@ -4,6 +4,8 @@ from jsa_risk.state import get_commodity_spec, get_contract_price, init_session_
 from jsa_risk.ui.blotter import render_editable_blotter
 from jsa_risk.ui.cash_position import render_cash_position_entry
 from jsa_risk.ui.charts import (
+    DEFAULT_SHOCK_WINDOW,
+    SHOCK_WINDOWS,
     render_delta_scenario,
     render_greeks_bars,
     render_payoff_chart,
@@ -79,15 +81,23 @@ st.markdown("###### Greeks by contract")
 render_greeks_bars(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
+shock_window = st.radio(
+    "Price shock window (applies to the three scenario charts below)",
+    list(SHOCK_WINDOWS),
+    index=list(SHOCK_WINDOWS).index(DEFAULT_SHOCK_WINDOW),
+    horizontal=True,
+    key="shock_window",
+)
+
 st.markdown("###### P&L scenario heatmap")
 st.caption(
-    "Price shock (x-axis, % of each contract's value in 5% steps, with the ≈¢ per "
+    "Price shock (x-axis, % of each contract's value, with the ≈¢ per "
     f"{commodity.unit} equivalent beneath) vs. vol shock (y-axis, %) layered on top of the current stress scenario."
 )
-render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity)
+render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("###### Delta scenario")
-render_delta_scenario(positions, stress, get_contract_price, commodity=commodity)
+render_delta_scenario(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("---")
 st.markdown("###### Portfolio payoff")
@@ -95,7 +105,7 @@ st.caption(
     f"P&L vs. a {commodity.name.lower()} futures price shock (% of contract value, with the ≈¢ per "
     f"{commodity.unit} equivalent), current vol & time."
 )
-render_payoff_chart(positions, stress, get_contract_price, commodity=commodity)
+render_payoff_chart(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("---")
 st.markdown("###### Value at risk")
