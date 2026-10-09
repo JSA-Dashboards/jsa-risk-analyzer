@@ -128,6 +128,19 @@ def contract_display_name(
     return name
 
 
+def normalize_underlying_override(raw: Optional[str], commodity: CommoditySpec = CORN) -> Optional[str]:
+    """Turns whatever was typed into the override box into a canonical key (month letter +
+    2-digit year, e.g. "V26"), or None if it isn't one. The full symbol shown beside it in
+    the table ("LEV26", this commodity's code + key) is accepted too, since that's the
+    natural thing to copy -- the commodity code is stripped, never reinterpreted."""
+    s = (raw or "").strip().upper()
+    if len(s) == 5 and s.startswith(commodity.code):
+        s = s[len(commodity.code):]
+    if len(s) == 3 and s[0].isalpha() and s[1:].isdigit():
+        return s
+    return None
+
+
 def format_canonical_key(key: Optional[str]) -> str:
     """Formats an already-final canonical key (month letter + 2-digit year, e.g. "Z26")
     as a plain month name/year -- no serial-to-listed mapping and no date-based rolling,

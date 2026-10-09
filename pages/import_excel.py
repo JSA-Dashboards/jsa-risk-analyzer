@@ -1,4 +1,3 @@
-import re
 from datetime import date, timedelta
 
 import pandas as pd
@@ -11,9 +10,7 @@ from jsa_risk.importer.mapping import IMPORT_TARGETS, QST_DEFAULT_MAPPING, auto_
 from jsa_risk.importer.parsing import parse_pasted_text
 from jsa_risk.importer.staging import build_staging_row, label_commodity_code, staging_row_valid
 from jsa_risk.pricing.commodities import COMMODITIES
-from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
-
-_OVERRIDE_RE = re.compile(r"^[A-Z]\d{2}$")
+from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name, normalize_underlying_override
 
 # Defensive, not redundant -- see the matching comment in pages/dashboard.py.
 state.init_session_state()
@@ -222,14 +219,18 @@ if "import_staging" in st.session_state:
         val = str(row["Override (blank = auto)"] or "").strip().upper()
         if not val:
             continue
-        if _OVERRIDE_RE.match(val):
-            new_overrides[row["Symbol"]] = val
+        key = normalize_underlying_override(val, commodity)
+        if key:
+            new_overrides[row["Symbol"]] = key
         else:
             bad_overrides.append((row["Symbol"], val))
     st.session_state.import_underlying_overrides = new_overrides
     if bad_overrides:
         bad_str = ", ".join(f'{sym}: "{val}"' for sym, val in bad_overrides)
-        st.warning(f'Ignoring invalid override(s) — use a month letter + 2-digit year, e.g. "Z26": {bad_str}')
+        st.warning(
+            f'Ignoring invalid override(s) — use a month letter + 2-digit year, e.g. "V26" or '
+            f'"{commodity.code}V26" for October \'26: {bad_str}'
+        )
 
     if st.button(f"Replace book with {valid_count} position(s)", type="primary", disabled=valid_count == 0):
         positions, estimated_count = positions_from_staging(

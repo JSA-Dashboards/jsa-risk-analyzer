@@ -5,7 +5,28 @@ from jsa_risk.pricing.symbols import (
     canonical_contract_key,
     contract_display_name,
     decode_contract_symbol,
+    normalize_underlying_override,
 )
+
+
+def test_override_accepts_a_bare_canonical_key():
+    assert normalize_underlying_override("V26", LIVE_CATTLE) == "V26"
+    assert normalize_underlying_override(" v26 ", LIVE_CATTLE) == "V26"
+
+
+def test_override_accepts_the_full_symbol_with_the_commodity_code():
+    assert normalize_underlying_override("LEV26", LIVE_CATTLE) == "V26"
+    assert normalize_underlying_override("lev26", LIVE_CATTLE) == "V26"
+
+
+def test_override_does_not_strip_another_commodities_code():
+    # A corn symbol typed into a cattle session is not silently reinterpreted.
+    assert normalize_underlying_override("ZCZ26", LIVE_CATTLE) is None
+
+
+def test_override_rejects_junk_and_blank():
+    for bad in ("", None, "V2", "V2026", "26V", "LE", "LEV2", "LEVV2"):
+        assert normalize_underlying_override(bad, LIVE_CATTLE) is None
 
 
 def test_decodes_a_quarterly_future():
