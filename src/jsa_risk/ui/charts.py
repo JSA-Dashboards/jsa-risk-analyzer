@@ -37,15 +37,45 @@ def _steps(half_range: float, step: float) -> List[float]:
     return [round(i * step, 6) for i in range(-n, n + 1)]
 
 
-# Live cattle is quoted and traded in fractions of a cent, so its shocks are fixed in cents
-# per pound rather than a percent window: commodity code -> (half-range ¢, step ¢). The charts
-# still carry them internally as a percent of the book's reference price (cents / price), so
-# the pricing code is unchanged; only the grid and the labels are in cents.
-CENTS_SHOCKS = {"LE": (5.0, 0.5)}
+# Live cattle is quoted and traded in fractions of a cent, so its shocks are laddered in cents
+# per pound rather than as a percent window: (half-range ¢, step ¢). The charts still carry
+# them internally as a percent of the book's reference price (cents / price), so the pricing
+# code is unchanged; only the grid and the labels are in cents.
+#
+# Selectable for the same reason the percent windows are: ±5¢ is the right default for a book
+# sitting near the money, but a leg struck 10¢ out shows no shape at all inside it -- the
+# payoff chart draws a flat expiry line because the window stops short of the strike.
+CENTS_SHOCK_WINDOWS = {
+    "±2¢ · 0.25¢ steps": (2.0, 0.25),
+    "±5¢ · 0.5¢ steps": (5.0, 0.5),
+    "±10¢ · 1¢ steps": (10.0, 1.0),
+    "±20¢ · 2¢ steps": (20.0, 2.0),
+}
+DEFAULT_CENTS_SHOCK_WINDOW = "±5¢ · 0.5¢ steps"
+CENTS_SHOCK_COMMODITIES = {"LE"}
 
 
 def shocks_in_cents(commodity: CommoditySpec) -> bool:
-    return commodity.code in CENTS_SHOCKS
+    return commodity.code in CENTS_SHOCK_COMMODITIES
+
+
+def shock_windows_for(commodity: Optional[CommoditySpec]) -> dict:
+    """The window presets to offer for a commodity -- cents for live cattle, percent for the
+    rest. Keyed by the same label the user picks, so `shock_grid` can look one up directly."""
+    if commodity is not None and shocks_in_cents(commodity):
+        return CENTS_SHOCK_WINDOWS
+    return SHOCK_WINDOWS
+
+
+def default_shock_window(commodity: Optional[CommoditySpec]) -> str:
+    if commodity is not None and shocks_in_cents(commodity):
+        return DEFAULT_CENTS_SHOCK_WINDOW
+    return DEFAULT_SHOCK_WINDOW
+
+
+def cents_window(commodity: CommoditySpec, window: str) -> tuple:
+    """(half-range ¢, step ¢) for a cents-shock commodity's selected window."""
+    return CENTS_SHOCK_WINDOWS.get(window, CENTS_SHOCK_WINDOWS[DEFAULT_CENTS_SHOCK_WINDOW])
 
 
 def shock_grid(
@@ -53,10 +83,10 @@ def shock_grid(
     ref_price: Optional[float] = None,
 ) -> Tuple[float, float, List[float]]:
     """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0]).
-    For a cents-shock commodity (live cattle) the window is ignored and the grid is the fixed
-    cents ladder expressed as a percent of `ref_price`."""
+    For a cents-shock commodity (live cattle) `window` names a CENTS_SHOCK_WINDOWS preset and
+    the grid is that cents ladder expressed as a percent of `ref_price`."""
     if commodity is not None and shocks_in_cents(commodity):
-        half_c, step_c = CENTS_SHOCKS[commodity.code]
+        half_c, step_c = cents_window(commodity, window)
         rp = ref_price or commodity.default_price
         return half_c / rp, step_c / rp, [c / rp for c in _steps(half_c, step_c)]
     half_range, step = SHOCK_WINDOWS.get(window, SHOCK_WINDOWS[DEFAULT_SHOCK_WINDOW])
@@ -355,7 +385,7 @@ def render_payoff_chart(
     )
     st.plotly_chart(fig, use_container_width=True)
     if shocks_in_cents(commodity):
-        half_c = CENTS_SHOCKS[commodity.code][0]
+        half_c = cents_window(commodity, shock_window)[0]
         view_text, range_text = f"{half_c:g}¢", f"{half_c * 3:g}¢"
     else:
         view_text, range_text = f"{default_view:g}% of the average price", f"{compute_range:g}%"

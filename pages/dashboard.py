@@ -4,13 +4,12 @@ from jsa_risk.state import get_commodity_spec, get_contract_price, init_session_
 from jsa_risk.ui.blotter import render_editable_blotter
 from jsa_risk.ui.cash_position import render_cash_position_entry
 from jsa_risk.ui.charts import (
-    DEFAULT_SHOCK_WINDOW,
-    CENTS_SHOCKS,
-    SHOCK_WINDOWS,
+    default_shock_window,
     render_delta_scenario,
     render_greeks_bars,
     render_payoff_chart,
     render_pnl_heatmap,
+    shock_windows_for,
     shocks_in_cents,
 )
 from jsa_risk.ui.kpi import render_kpi_strip, render_var_panel
@@ -83,20 +82,18 @@ st.markdown("###### Greeks by contract")
 render_greeks_bars(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
-if shocks_in_cents(commodity):
-    # Fixed, not selectable: cattle is traded in fractions of a cent.
-    half_c, step_c = CENTS_SHOCKS[commodity.code]
-    shock_window = DEFAULT_SHOCK_WINDOW      # ignored for a cents-shock commodity
-    st.caption(f"Price shocks for {commodity.name.lower()} are fixed at ±{half_c:g}¢/{commodity.unit} in "
-               f"{step_c:g}¢ steps (applies to the three scenario charts below).")
-else:
-    shock_window = st.radio(
-        "Price shock window (applies to the three scenario charts below)",
-        list(SHOCK_WINDOWS),
-        index=list(SHOCK_WINDOWS).index(DEFAULT_SHOCK_WINDOW),
-        horizontal=True,
-        key="shock_window",
-    )
+# Cattle's presets are in cents per pound, every other commodity's in percent -- so the
+# options differ by commodity, and so does the widget key. One shared key would carry a
+# percent label into a cents commodity (or back) on switching, and Streamlit raises when a
+# stored radio value isn't among the options it's handed.
+windows = shock_windows_for(commodity)
+shock_window = st.radio(
+    "Price shock window (applies to the three scenario charts below)",
+    list(windows),
+    index=list(windows).index(default_shock_window(commodity)),
+    horizontal=True,
+    key=f"shock_window_{commodity.code}",
+)
 shock_axis_text = (
     f"Price shock (x-axis, ¢ per {commodity.unit}, the same move on every contract, with the % of the "
     "book's average price beneath)" if shocks_in_cents(commodity) else
