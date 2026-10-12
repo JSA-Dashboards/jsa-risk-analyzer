@@ -1,12 +1,16 @@
-"""Refresh IV_SNAPSHOT from CME DataMine end-of-day corn options settlements.
+"""Refresh IV_SNAPSHOT from CME DataMine end-of-day options settlements (corn and live
+cattle).
 
 Replaces the hand-typed vols seeded by seed_reference_data.py with at-the-money
-settlement implied vol, one row per quarterly corn contract.
+settlement implied vol, one row per listed futures contract. `--commodity` picks ZC (corn,
+the default, so existing scheduled runs are unchanged), LE (live cattle), or ALL.
+Feeder cattle has no readable DataMine file under JSA's license.
 
     .venv/Scripts/python.exe scripts/refresh_iv_from_cme.py --dry-run
     .venv/Scripts/python.exe scripts/refresh_iv_from_cme.py
     .venv/Scripts/python.exe scripts/refresh_iv_from_cme.py --date 20260918 --settlement final
     .venv/Scripts/python.exe scripts/refresh_iv_from_cme.py --keys Z26 N27
+    .venv/Scripts/python.exe scripts/refresh_iv_from_cme.py --commodity ALL
 
 Source changed 2026-09-20: this used to read the Options Analytics Greeks REST API, which
 JSA isn't licensed for (it 403s). JSA's license is DataMine End of Market Summary, whose
@@ -31,8 +35,10 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from jsa_risk.pricing.commodities import CORN, reference_key
+from jsa_risk.pricing.commodities import COMMODITIES, reference_key
+from jsa_risk.pricing.symbols import MONTH_NUMBERS
 from jsa_risk.integrations.cme_datamine_client import (
+    DATAMINE_PRODUCTS,
     config_from_dict,
     CmeDataMineUnavailable,
     FileNotPosted,
@@ -80,6 +86,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true",
                     help="print what would be written, touch nothing")
+    ap.add_argument("--commodity", default="ZC", choices=sorted(DATAMINE_PRODUCTS) + ["ALL"],
+                    help="ZC corn (default), LE live cattle, or ALL")
     ap.add_argument("--keys", nargs="+", metavar="KEY",
                     help="only these canonical keys, e.g. Z26 N27 (default: all found)")
     ap.add_argument("--date", type=parse_date_arg, metavar="YYYYMMDD",
@@ -99,51 +107,70 @@ def main(argv: list[str]) -> int:
     config = config_from_dict(secrets["cme_datamine"])
     wanted_settlements = SETTLEMENT_CHOICES[args.settlement]
 
-    try:
-        if args.date:
-            text = None
-            for s in wanted_settlements:
-                try:
-                    text, trade_date, settlement = download_eod(config, args.date, s), args.date, s
-                    break
-                except FileNotPosted:
+    codes = sorted(DATAMINE_PRODUCTS) if args.commodity == "ALL" else [args.commodity]
+    to_write = []        # (CommoditySpec, {canonical_key: EodIvQuote})
+    for code in codes:
+        spec = COMMODITIES[code]
+        product = DATAMINE_PRODUCTS[code]
+        try:
+            if args.date:
+                text = None
+                for st_ in wanted_settlements:
+                    try:
+                        text = download_eod(config, args.date, st_, product.symbol, product.exchange)
+                        trade_date, settlement = args.date, st_
+                        break
+                    except FileNotPosted:
+                        continue
+                if text is None:
+                    print(f"[{code}] No {args.settlement} settlement file posted for {args.date:%Y-%m-%d}.")
                     continue
-            if text is None:
-                print(f"No {args.settlement} settlement file posted for {args.date:%Y-%m-%d}.")
-                return 1
-        else:
-            today = datetime.now(CHICAGO).date()
-            trade_date, settlement, text = latest_available(
-                config, today, args.lookback_days, wanted_settlements)
-    except CmeDataMineUnavailable as exc:
-        print(f"CME DataMine unavailable: {exc}")
-        return 2
+            else:
+                today = datetime.now(CHICAGO).date()
+                trade_date, settlement, text = latest_available(
+                    config, today, args.lookback_days, wanted_settlements,
+                    product.symbol, product.exchange)
+        except CmeDataMineUnavailable as exc:
+            print(f"[{code}] CME DataMine unavailable: {exc}")
+            if len(codes) == 1:
+                return 2
+            continue
 
-    rows = parse_eod_csv(text)
-    quotes = atm_iv_by_canonical_key(rows, settlement, trade_date)
-    print(f"File: {trade_date:%Y-%m-%d} {'Final' if settlement == 'F' else 'Preliminary'} "
-          f"- {len(rows)} rows, {len(quotes)} quarterly contract(s) with a usable ATM vol\n")
+        rows = parse_eod_csv(text)
+        month_letters = {MONTH_NUMBERS[m]: m for m in spec.listed_months}
+        quotes = atm_iv_by_canonical_key(
+            rows, settlement, trade_date, month_letters=month_letters, commodity_code=code,
+            strike_divisor=product.strike_divisor, settlement_divisor=product.settlement_divisor)
+        print(f"[{code} {spec.name}] File: {trade_date:%Y-%m-%d} "
+              f"{'Final' if settlement == 'F' else 'Preliminary'} - {len(rows)} rows, "
+              f"{len(quotes)} contract(s) with a usable ATM vol\n")
 
-    if args.keys:
-        wanted = {k.upper() for k in args.keys}
-        quotes = {k: v for k, v in quotes.items() if k in wanted}
-        missing = wanted - set(quotes)
-        if missing:
-            print(f"WARNING: no ATM vol for {', '.join(sorted(missing))} "
-                  f"- leaving those rows untouched\n")
+        if args.keys:
+            wanted = {k.upper() for k in args.keys}
+            quotes = {k: v for k, v in quotes.items() if k in wanted}
+            missing = wanted - set(quotes)
+            if missing:
+                print(f"WARNING: no ATM vol for {', '.join(sorted(missing))} "
+                      f"- leaving those rows untouched\n")
 
-    if not quotes:
-        print("No quotes to write.")
+        if not quotes:
+            print(f"[{code}] No quotes to write.\n")
+            continue
+
+        print(f"  {'key':<5} {'IV %':>7} {'undly':<7} {'implied px':>11} {'dte':>5} "
+              f"{'ATM K':>7}  method")
+        for key in sorted(quotes, key=lambda k: quotes[k].dte if quotes[k].dte is not None else 0):
+            q = quotes[key]
+            px = f"{q.undly_px:.3f}" if q.undly_px is not None else ""
+            dte = q.dte if q.dte is not None else ""
+            print(f"  {q.canonical_key:<5} {q.iv_pct:>7.2f} {q.undly_sym:<7} {px:>11} {dte:>5} "
+                  f"{q.atm_strike:>7g}  {q.method}")
+        print()
+        to_write.append((spec, quotes))
+
+    if not to_write:
+        print("Nothing to write.")
         return 1
-
-    print(f"  {'key':<5} {'IV %':>7} {'undly':<7} {'implied px':>11} {'dte':>5} "
-          f"{'ATM K':>7}  method")
-    for key in sorted(quotes, key=lambda k: quotes[k].dte if quotes[k].dte is not None else 0):
-        q = quotes[key]
-        px = f"{q.undly_px:.3f}" if q.undly_px is not None else ""
-        dte = q.dte if q.dte is not None else ""
-        print(f"  {q.canonical_key:<5} {q.iv_pct:>7.2f} {q.undly_sym:<7} {px:>11} {dte:>5} "
-              f"{q.atm_strike:>7g}  {q.method}")
 
     if args.dry_run:
         print("\n--dry-run: nothing written.")
@@ -173,30 +200,32 @@ def main(argv: list[str]) -> int:
     written = 0
     try:
         cur = conn.cursor()
-        for key in sorted(quotes):
-            q = quotes[key]
-            as_of = datetime(q.trade_date.year, q.trade_date.month, q.trade_date.day)
-            cur.execute(
-                """
-                MERGE INTO IV_SNAPSHOT t
-                USING (SELECT %s AS KEY, %s AS IV, %s AS SOURCE, %s::TIMESTAMP_NTZ AS AS_OF) s
-                ON t.CANONICAL_KEY = s.KEY
-                WHEN MATCHED AND (t.AS_OF IS NULL OR s.AS_OF >= t.AS_OF) THEN
-                    UPDATE SET IV=s.IV, SOURCE=s.SOURCE, AS_OF=s.AS_OF,
-                               UPDATED_AT=CURRENT_TIMESTAMP(), UPDATED_BY=%s
-                WHEN NOT MATCHED THEN
-                    INSERT (CANONICAL_KEY, IV, SOURCE, AS_OF, UPDATED_BY)
-                    VALUES (s.KEY, s.IV, s.SOURCE, s.AS_OF, %s)
-                """,
-                (reference_key(CORN, q.canonical_key), q.iv_pct, q.source_label, as_of,
-                 args.updated_by, args.updated_by),
-            )
-            written += cur.rowcount or 0
+        for spec, quotes in to_write:
+            for key in sorted(quotes):
+                q = quotes[key]
+                as_of = datetime(q.trade_date.year, q.trade_date.month, q.trade_date.day)
+                cur.execute(
+                    """
+                    MERGE INTO IV_SNAPSHOT t
+                    USING (SELECT %s AS KEY, %s AS IV, %s AS SOURCE, %s::TIMESTAMP_NTZ AS AS_OF) s
+                    ON t.CANONICAL_KEY = s.KEY
+                    WHEN MATCHED AND (t.AS_OF IS NULL OR s.AS_OF >= t.AS_OF) THEN
+                        UPDATE SET IV=s.IV, SOURCE=s.SOURCE, AS_OF=s.AS_OF,
+                                   UPDATED_AT=CURRENT_TIMESTAMP(), UPDATED_BY=%s
+                    WHEN NOT MATCHED THEN
+                        INSERT (CANONICAL_KEY, IV, SOURCE, AS_OF, UPDATED_BY)
+                        VALUES (s.KEY, s.IV, s.SOURCE, s.AS_OF, %s)
+                    """,
+                    (reference_key(spec, q.canonical_key), q.iv_pct, q.source_label, as_of,
+                     args.updated_by, args.updated_by),
+                )
+                written += cur.rowcount or 0
         conn.commit()
     finally:
         conn.close()
 
-    skipped = len(quotes) - written
+    total = sum(len(q) for _, q in to_write)
+    skipped = total - written
     print(f"\nWrote {written} row(s) to IV_SNAPSHOT"
           + (f"; {skipped} left alone because they already hold newer data." if skipped else "."))
     return 0

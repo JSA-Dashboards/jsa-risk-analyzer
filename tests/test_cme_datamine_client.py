@@ -226,3 +226,32 @@ def test_latest_raises_when_nothing_is_posted_in_the_window():
          patch.object(dm.requests, "get", return_value=_not_found("File not found")):
         with pytest.raises(FileNotPosted):
             latest_available(CONFIG, today=date(2026, 9, 18), lookback_days=2)
+
+
+class TestLiveCattleProduct:
+    def test_file_id_uses_the_products_own_exchange_and_symbol(self):
+        from datetime import date
+        from jsa_risk.integrations.cme_datamine_client import DATAMINE_PRODUCTS, file_id
+        p = DATAMINE_PRODUCTS["LE"]
+        assert file_id(date(2026, 10, 9), "P", p.symbol, p.exchange) == "20261009-EOD_XCME_OK_OPT_0_ETH_P"
+        assert file_id(date(2026, 10, 9), "F") == "20261009-EOD_XCBT_PY_OPT_0_ETH_F"   # corn default unchanged
+
+    def test_cattle_months_units_and_prefix(self):
+        from jsa_risk.integrations.cme_datamine_client import atm_iv_by_canonical_key
+        from jsa_risk.pricing.commodities import LIVE_CATTLE
+        from jsa_risk.pricing.symbols import MONTH_NUMBERS
+
+        def row(pc, strike, settle, delta, iv, month):
+            return {"Implied Volatility": iv, "Contract Day": "00", "Contract Year": "2027",
+                    "Contract Month": month, "Strike Price": strike, "Put/Call": pc,
+                    "Settlement": settle, "Delta": delta, "Trade Date": "20261009",
+                    "Last Trade Date": "20270205"}
+        rows = [row("C", "2300", "7.35", "0.505", "0.1448", "02"), row("P", "2300", "7.00", "0.495", "0.1450", "02"),
+                row("C", "2300", "9.00", "0.50", "0.30", "01"), row("P", "2300", "9.00", "0.50", "0.30", "01")]  # Jan: not a cattle futures month
+        letters = {MONTH_NUMBERS[m]: m for m in LIVE_CATTLE.listed_months}
+        q = atm_iv_by_canonical_key(rows, "P", month_letters=letters, commodity_code="LE",
+                                    strike_divisor=10, settlement_divisor=1)
+        assert list(q) == ["G27"]                       # Feb is a listed live-cattle month, Jan is not
+        assert q["G27"].undly_sym == "LEG27"
+        assert q["G27"].iv_pct == pytest.approx(14.49)
+        assert q["G27"].undly_px == pytest.approx(230.35)   # 2300/10 + (7.35 - 7.00) in cents/lb

@@ -68,6 +68,26 @@ def config_from_dict(s) -> CmeDataMineConfig:
 
 
 CORN_OPTION_SYMBOL = "PY"
+
+
+@dataclass(frozen=True)
+class DataMineProduct:
+    """Where a commodity's option settlements live in DataMine, and the file's own units
+    (they differ by product, so put-call parity needs them to line strike and price up)."""
+    exchange: str
+    symbol: str
+    strike_divisor: float = 1.0       # file strike / this = cents per unit
+    settlement_divisor: float = 10.0  # file settlement / this = cents per unit
+
+
+# Keyed by the app's commodity code. Corn is on CBOT (strikes in cents/bu, settlements in
+# tenths of a cent); live cattle is on CME (strikes in tenths of a cent/lb, settlements in
+# cents). Feeder cattle isn't here: no readable file for it under JSA's license -- a scan of
+# the CME exchange found only XCME_OK (live cattle) entitled for this API ID.
+DATAMINE_PRODUCTS = {
+    "ZC": DataMineProduct("XCBT", CORN_OPTION_SYMBOL, 1.0, 10.0),
+    "LE": DataMineProduct("XCME", "OK", 10.0, 1.0),
+}
 _USER_AGENT = "JSA-Risk-Analyzer/1.0 (python-requests)"
 DEFAULT_TOKEN_TTL_SECONDS = 30 * 60
 _EARLY_REFRESH_SECONDS = 30
@@ -122,10 +142,12 @@ class EodIvQuote:
                 f"(K={self.atm_strike:g} @ {self.trade_date.isoformat()})")
 
 
-def file_id(trade_date: date, settlement: str = "F", symbol: str = CORN_OPTION_SYMBOL) -> str:
+def file_id(
+    trade_date: date, settlement: str = "F", symbol: str = CORN_OPTION_SYMBOL, exchange: str = "XCBT",
+) -> str:
     if settlement not in SETTLEMENTS:
         raise ValueError(f"settlement must be one of {sorted(SETTLEMENTS)}, got {settlement!r}")
-    return f"{trade_date:%Y%m%d}-EOD_XCBT_{symbol}_OPT_0_{SETTLEMENTS[settlement]}"
+    return f"{trade_date:%Y%m%d}-EOD_{exchange}_{symbol}_OPT_0_{SETTLEMENTS[settlement]}"
 
 
 def _get_token(config: CmeDataMineConfig) -> str:
@@ -153,10 +175,10 @@ def _get_token(config: CmeDataMineConfig) -> str:
 
 def download_eod(
     config: CmeDataMineConfig, trade_date: date, settlement: str = "F",
-    symbol: str = CORN_OPTION_SYMBOL,
+    symbol: str = CORN_OPTION_SYMBOL, exchange: str = "XCBT",
 ) -> str:
     """The decompressed CSV text for one day's settlement file."""
-    fid = file_id(trade_date, settlement, symbol)
+    fid = file_id(trade_date, settlement, symbol, exchange)
     token = _get_token(config)
     try:
         resp = requests.get(
@@ -195,6 +217,7 @@ def download_eod(
 def latest_available(
     config: CmeDataMineConfig, today: date, lookback_days: int = 7,
     settlements: Iterable[str] = ("F", "P"), symbol: str = CORN_OPTION_SYMBOL,
+    exchange: str = "XCBT",
 ) -> Tuple[date, str, str]:
     """(trade_date, settlement, csv_text) for the newest posted file.
 
@@ -210,7 +233,7 @@ def latest_available(
             continue
         for s in settlements:
             try:
-                return d, s, download_eod(config, d, s, symbol)
+                return d, s, download_eod(config, d, s, symbol, exchange)
             except FileNotPosted:
                 continue
     raise FileNotPosted(
@@ -239,6 +262,8 @@ def _yyyymmdd(v) -> Optional[date]:
 
 def atm_iv_by_canonical_key(
     rows: Iterable[dict], settlement: str = "F", trade_date: Optional[date] = None,
+    month_letters: Optional[Dict[int, str]] = None, commodity_code: str = "ZC",
+    strike_divisor: float = 1.0, settlement_divisor: float = 10.0,
 ) -> Dict[str, EodIvQuote]:
     """ATM settlement IV per quarterly contract, e.g. {"Z26": EodIvQuote(iv_pct=21.63, ...)}.
 
@@ -247,6 +272,7 @@ def atm_iv_by_canonical_key(
     and a put IV, the two are averaged. A contract whose nearest strike is further than
     0.15 delta from 0.50 is skipped rather than guessed at.
     """
+    month_letters = month_letters or QUARTERLY_MONTH_LETTERS   # {month number: letter} of listed futures
     by_month: Dict[Tuple[int, int], Dict[float, Dict[str, dict]]] = {}
     for r in rows:
         iv = _num(r.get("Implied Volatility"))
@@ -258,7 +284,7 @@ def atm_iv_by_canonical_key(
             year, month = int(r["Contract Year"]), int(r["Contract Month"])
         except (KeyError, ValueError):
             continue
-        if month not in QUARTERLY_MONTH_LETTERS:
+        if month not in month_letters:
             continue
         strike = _num(r.get("Strike Price"))
         pc = (r.get("Put/Call") or "").strip().upper()
@@ -296,12 +322,12 @@ def atm_iv_by_canonical_key(
         if "C" in legs and "P" in legs:
             c, p = _num(legs["C"].get("Settlement")), _num(legs["P"].get("Settlement"))
             if c is not None and p is not None:
-                undly_px = round(k_atm + (c - p) / 10, 4)   # settlements are tenths of a cent
+                undly_px = round(k_atm / strike_divisor + (c - p) / settlement_divisor, 4)
 
         any_leg = next(iter(legs.values()))
         td = trade_date or _yyyymmdd(any_leg.get("Trade Date"))
         last = _yyyymmdd(any_leg.get("Last Trade Date"))
-        letter = QUARTERLY_MONTH_LETTERS[month]
+        letter = month_letters[month]
         key = f"{letter}{year % 100:02d}"
         quotes[key] = EodIvQuote(
             canonical_key=key,
@@ -309,7 +335,7 @@ def atm_iv_by_canonical_key(
             trade_date=td,
             settlement=settlement,
             atm_strike=k_atm,
-            undly_sym=f"ZC{key}",
+            undly_sym=f"{commodity_code}{key}",
             undly_px=undly_px,
             dte=(last - td).days if (last and td) else None,
             method=method,
