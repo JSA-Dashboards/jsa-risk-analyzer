@@ -32,6 +32,11 @@ class CommoditySpec:
                                # levels (~$2/lb) because they looked wildly out-of-the-money
                                # against that phantom ~$4.62/lb "future".
     icon: str = "📈"
+    # Grains stop being the contract to price off once their own month begins (corn's last
+    # trade day is ~2 weeks before the month starts), so options tied to it roll to the next
+    # listed contract on the 1st. Cattle trade through their own contract month, so for them
+    # a contract stays current until the month is over.
+    rolls_at_month_start: bool = True
 
 
 CORN = CommoditySpec(
@@ -45,10 +50,12 @@ SOYBEANS = CommoditySpec(
 LIVE_CATTLE = CommoditySpec(
     code="LE", name="Live Cattle", unit="lb", contract_size=40000,
     listed_months=["G", "J", "M", "Q", "V", "Z"], daily_vol=0.011, default_price=2.20, icon="🐄",
+    rolls_at_month_start=False,
 )
 FEEDER_CATTLE = CommoditySpec(
     code="GF", name="Feeder Cattle", unit="lb", contract_size=50000,
     listed_months=["F", "H", "J", "K", "Q", "U", "V", "X"], daily_vol=0.012, default_price=2.60, icon="🐂",
+    rolls_at_month_start=False,
 )
 
 COMMODITIES: Dict[str, CommoditySpec] = {

@@ -73,10 +73,21 @@ def _nominal_listed_month(months_order, month: str, year: int) -> Tuple[str, int
     return months_order[0], year + 1
 
 
-def _roll_to_active(months_order, month: str, year: int, today: date) -> Tuple[str, int]:
+def _contract_has_rolled(month: str, year: int, today: date, rolls_at_month_start: bool) -> bool:
+    start = date(year, MONTH_NUMBERS[month], 1)
+    if rolls_at_month_start:
+        return today >= start
+    return today >= date(year + (month == "Z"), MONTH_NUMBERS[month] % 12 + 1, 1)   # first of the NEXT month
+
+
+def _roll_to_active(
+    months_order, month: str, year: int, today: date, rolls_at_month_start: bool = True,
+) -> Tuple[str, int]:
     """Cascades forward (not just one hop) so a long-stale reference still lands on
-    whichever listed contract is actually current as of `today`."""
-    while today >= date(year, MONTH_NUMBERS[month], 1):
+    whichever listed contract is actually current as of `today`. Whether a contract counts
+    as rolled from the 1st of its own month or only once the month is over is a
+    per-commodity choice (CommoditySpec.rolls_at_month_start)."""
+    while _contract_has_rolled(month, year, today, rolls_at_month_start):
         month, year = _next_listed(months_order, month, year)
     return month, year
 
@@ -94,7 +105,8 @@ def decode_contract_symbol(
     today = today or date.today()
     year = 2000 + int(year2)
     nominal_month, nominal_year = _nominal_listed_month(commodity.listed_months, month_char, year)
-    underlying_month, underlying_year = _roll_to_active(commodity.listed_months, nominal_month, nominal_year, today)
+    underlying_month, underlying_year = _roll_to_active(
+        commodity.listed_months, nominal_month, nominal_year, today, commodity.rolls_at_month_start)
     is_serial = underlying_month != month_char or underlying_year != year
     return DecodedSymbol(
         raw=s,
@@ -158,12 +170,12 @@ def upcoming_contract_keys(
 ) -> list:
     """The next `count` listed contracts that haven't yet rolled off as of `today`, as
     canonical keys in calendar order (e.g. ["Z26", "H27", ...]). Same roll rule as
-    decode_contract_symbol: a contract counts as rolled once its own month has begun."""
+    decode_contract_symbol (see CommoditySpec.rolls_at_month_start)."""
     today = today or date.today()
     keys: list = []
     for year in range(today.year, today.year + 4):
         for month in commodity.listed_months:
-            if date(year, MONTH_NUMBERS[month], 1) > today:
+            if not _contract_has_rolled(month, year, today, commodity.rolls_at_month_start):
                 keys.append(f"{month}{year % 100:02d}")
                 if len(keys) == count:
                     return keys

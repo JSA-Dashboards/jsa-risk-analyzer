@@ -189,3 +189,29 @@ def test_option_expiry_moves_to_the_prior_business_day_when_it_lands_on_a_holida
     assert option_expiry_date("LEF27", LIVE_CATTLE) == date(2026, 12, 31)   # Jan 1 2027 is a Friday holiday
     # ...and a normal Friday is untouched
     assert option_expiry_date("ZCG27") == date(2027, 1, 22)
+
+
+class TestCattleStaysOnItsOwnMonth:
+    def test_a_cattle_contract_does_not_roll_when_its_month_begins(self):
+        # Unlike grains, live cattle trades through its own contract month: Oct '26 stays the
+        # underlying for the whole of October and only rolls to Dec on Nov 1.
+        for today in (date(2026, 10, 1), date(2026, 10, 12), date(2026, 10, 31)):
+            assert decode_contract_symbol("LEV26", today, commodity=LIVE_CATTLE).underlying_key == "V26"
+        d = decode_contract_symbol("LEV26", date(2026, 11, 1), commodity=LIVE_CATTLE)
+        assert (d.underlying_key, d.is_serial) == ("Z26", True)
+
+    def test_feeder_cattle_is_the_same(self):
+        assert decode_contract_symbol("GFV26", date(2026, 10, 12), commodity=FEEDER_CATTLE).underlying_key == "V26"
+
+    def test_corn_still_rolls_on_the_first_of_its_own_month(self):
+        assert decode_contract_symbol("ZCU26", date(2026, 9, 1)).underlying_key == "Z26"
+
+    def test_the_cascade_and_year_boundary_work_with_month_end_rolling(self):
+        # Dec '26 cattle stays current through Dec, then rolls into Feb '27 (next year).
+        assert decode_contract_symbol("LEZ26", date(2026, 12, 31), commodity=LIVE_CATTLE).underlying_key == "Z26"
+        assert decode_contract_symbol("LEZ26", date(2027, 1, 1), commodity=LIVE_CATTLE).underlying_key == "G27"
+
+    def test_upcoming_contracts_include_the_current_cattle_month(self):
+        from jsa_risk.pricing.symbols import upcoming_contract_keys
+        assert upcoming_contract_keys(LIVE_CATTLE, date(2026, 10, 12), 3) == ["V26", "Z26", "G27"]
+        assert upcoming_contract_keys(LIVE_CATTLE, date(2026, 11, 1), 3) == ["Z26", "G27", "J27"]

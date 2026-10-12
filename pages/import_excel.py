@@ -196,10 +196,12 @@ if "import_staging" in st.session_state:
 
     st.markdown("###### Adjust underlying futures contracts (optional)")
     st.caption(
-        "Auto-derived per symbol — serial months roll to the next quarterly future, and a "
-        "quarterly month itself rolls forward once its own contract month begins (e.g. "
-        "September options price off December starting Sep 1). Override only the one-offs "
-        "that still need fixing, using a canonical key like Z26 for December '26."
+        "Auto-derived per symbol — serial months roll to the next listed future"
+        + (", and a listed month itself rolls forward once its own contract month begins (e.g. "
+           "September corn options price off December starting Sep 1). "
+           if commodity.rolls_at_month_start else
+           f", and a {commodity.name.lower()} contract stays current through its own month. ")
+        + "Override only the one-offs that still need fixing, using a canonical key like Z26 for December '26."
     )
     distinct_labels = sorted({r.label for r in included if r.label})
     prior_overrides = st.session_state.get("import_underlying_overrides", {})
