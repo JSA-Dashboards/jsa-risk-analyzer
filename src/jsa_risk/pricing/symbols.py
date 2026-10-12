@@ -170,10 +170,53 @@ def upcoming_contract_keys(
     return keys
 
 
+def _easter(year: int) -> date:
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = b // 4, b % 4
+    g = (8 * b + 13) // 25
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month, day = divmod(h + l - 7 * m + 114, 31)
+    return date(year, month, day + 1)
+
+
+def _observed(d: date) -> Optional[date]:
+    """A fixed-date holiday's observed day: Saturday -> the Friday before, Sunday -> the
+    Monday after. (New Year's Day on a Saturday isn't observed on the prior Friday.)"""
+    if d.weekday() == 5:
+        return None if (d.month, d.day) == (1, 1) else d - timedelta(days=1)
+    if d.weekday() == 6:
+        return d + timedelta(days=1)
+    return d
+
+
+def _exchange_holidays(year: int) -> set:
+    """CME Group's US equity-style closures that matter for option expiries (a Friday
+    holiday moves an expiry to the prior business day)."""
+    fixed = [date(year, 1, 1), date(year, 6, 19), date(year, 7, 4), date(year, 12, 25)]
+    days = {_observed(d) for d in fixed}
+    days |= {
+        _nth_weekday(year, 1, 0, 3),                       # Martin Luther King Jr. Day
+        _nth_weekday(year, 2, 0, 3),                       # Presidents Day
+        _easter(year) - timedelta(days=2),                 # Good Friday
+        _last_weekday(year, 5, 0),                         # Memorial Day
+        _nth_weekday(year, 9, 0, 1),                       # Labor Day
+        _nth_weekday(year, 11, 3, 4),                      # Thanksgiving
+    }
+    days.add(_observed(date(year + 1, 1, 1)))              # an observed Jan 1 can land in Dec
+    return {d for d in days if d}
+
+
 def _is_business_day(d: date) -> bool:
-    # Weekdays only: exchange holidays aren't modelled, so a date landing next to one can be a
-    # day off -- callers should leave the result editable.
-    return d.weekday() < 5
+    return d.weekday() < 5 and d not in _exchange_holidays(d.year)
+
+
+def _prior_business_day(d: date) -> date:
+    while not _is_business_day(d):
+        d -= timedelta(days=1)
+    return d
 
 
 def _last_business_day(year: int, month: int) -> date:
@@ -204,7 +247,7 @@ def _cbot_grain_option_expiry(year: int, month: int) -> date:
         if d.weekday() == 4:
             after = sum(1 for i in range(1, (last_bd - d).days + 1) if _is_business_day(d + timedelta(days=i)))
             if after >= 2:
-                return d
+                return _prior_business_day(d)      # a Friday holiday expires the day before
         d -= timedelta(days=1)
 
 
@@ -215,7 +258,8 @@ def option_expiry_date(raw_label: Optional[str], commodity: CommoditySpec = CORN
 
     Corn/soybeans: the CBOT rule above. Live cattle: first Friday of the contract month
     (checked against CME DataMine's Last Trade Dates). Feeder cattle: last Thursday of the
-    contract month. Weekly/short-dated options and exchange holidays aren't covered."""
+    contract month. Weekly/short-dated options aren't covered. A holiday on the expiry day moves it to the
+    prior business day (Christmas, New Year's Day and Good Friday did, in 2026-27)."""
     s = (raw_label or "").strip().upper()
     if len(s) < 5 or s[2] not in MONTH_NUMBERS or not s[3:5].isdigit():
         return None
@@ -223,7 +267,7 @@ def option_expiry_date(raw_label: Optional[str], commodity: CommoditySpec = CORN
     if commodity.code in ("ZC", "ZS"):
         return _cbot_grain_option_expiry(year, month)
     if commodity.code == "LE":
-        return _nth_weekday(year, month, 4, 1)
+        return _prior_business_day(_nth_weekday(year, month, 4, 1))
     if commodity.code == "GF":
-        return _last_weekday(year, month, 3)
+        return _prior_business_day(_last_weekday(year, month, 3))
     return None

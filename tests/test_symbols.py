@@ -178,3 +178,14 @@ def test_option_expiry_date_is_none_for_unreadable_symbols():
     assert option_expiry_date("") is None
     assert option_expiry_date("junk") is None
     assert option_expiry_date(None) is None
+
+
+def test_option_expiry_moves_to_the_prior_business_day_when_it_lands_on_a_holiday():
+    from jsa_risk.pricing.symbols import option_expiry_date
+    # Dates CME's DataMine lists as Last Trade Date, each one day earlier than the plain rule
+    # because the Friday is Christmas, New Year's Day, or Good Friday.
+    assert option_expiry_date("ZCF27") == date(2026, 12, 24)        # Dec 25 2026 is a Friday holiday
+    assert option_expiry_date("ZCJ27") == date(2027, 3, 25)         # Mar 26 2027 is Good Friday
+    assert option_expiry_date("LEF27", LIVE_CATTLE) == date(2026, 12, 31)   # Jan 1 2027 is a Friday holiday
+    # ...and a normal Friday is untouched
+    assert option_expiry_date("ZCG27") == date(2027, 1, 22)
