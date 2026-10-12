@@ -255,3 +255,42 @@ class TestLiveCattleProduct:
         assert q["G27"].undly_sym == "LEG27"
         assert q["G27"].iv_pct == pytest.approx(14.49)
         assert q["G27"].undly_px == pytest.approx(230.35)   # 2300/10 + (7.35 - 7.00) in cents/lb
+
+
+class TestOptionIvLookup:
+    @staticmethod
+    def _rows():
+        def r(pc, k, iv, month="12", day="00"):
+            return {"Put/Call": pc, "Strike Price": k, "Implied Volatility": iv, "Contract Year": "2026",
+                    "Contract Month": month, "Contract Day": day}
+        return [r("C", "500", "0.20"), r("C", "510", "0.22"), r("P", "500", "0.21"),
+                r("C", "505", "0.99", day="05"),          # a weekly: ignored
+                r("C", "500", "0.50", month="11")]         # a different month: ignored
+
+    def test_exact_strike(self):
+        from jsa_risk.integrations.cme_datamine_client import option_iv
+        q = option_iv(self._rows(), 2026, 12, "call", 5.00)
+        assert (q.iv_pct, q.method) == (20.0, "exact")
+
+    def test_interpolates_between_listed_strikes_and_ignores_weeklies(self):
+        from jsa_risk.integrations.cme_datamine_client import option_iv
+        q = option_iv(self._rows(), 2026, 12, "call", 5.05)
+        assert q.method == "interpolated" and q.iv_pct == pytest.approx(21.0)
+
+    def test_outside_the_listed_range_takes_the_nearest(self):
+        from jsa_risk.integrations.cme_datamine_client import option_iv
+        q = option_iv(self._rows(), 2026, 12, "call", 6.00)
+        assert (q.iv_pct, q.method) == (22.0, "nearest strike")
+
+    def test_uses_the_other_side_only_when_this_side_has_no_vols(self):
+        from jsa_risk.integrations.cme_datamine_client import option_iv
+        puts_only = [r for r in self._rows() if r["Put/Call"] == "P"]
+        assert option_iv(puts_only, 2026, 12, "call", 5.00).iv_pct == 21.0
+        assert option_iv(self._rows(), 2026, 12, "put", 5.00).iv_pct == 21.0   # own side wins
+
+    def test_cattle_strike_scaling_and_missing_month(self):
+        from jsa_risk.integrations.cme_datamine_client import option_iv
+        rows = [{"Put/Call": "C", "Strike Price": "2300", "Implied Volatility": "0.1448",
+                 "Contract Year": "2027", "Contract Month": "02", "Contract Day": "00"}]
+        assert option_iv(rows, 2027, 2, "call", 2.30, strike_divisor=10).iv_pct == pytest.approx(14.48)
+        assert option_iv(rows, 2027, 4, "call", 2.30, strike_divisor=10) is None

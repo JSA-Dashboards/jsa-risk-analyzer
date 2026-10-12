@@ -341,3 +341,59 @@ def atm_iv_by_canonical_key(
             method=method,
         )
     return quotes
+
+
+@dataclass(frozen=True)
+class OptionIv:
+    """One specific option's settlement vol, as found (or interpolated) in a DataMine file."""
+    iv_pct: float
+    strike: float        # dollars per unit; the listed strike used (the nearer one when interpolating)
+    method: str          # "exact", "interpolated", or "nearest strike"
+
+
+def option_iv(
+    rows: Iterable[dict], year: int, month: int, put_call: str, strike: float,
+    strike_divisor: float = 1.0,
+) -> Optional[OptionIv]:
+    """This option's own settlement IV -- strike- and expiry-specific, so it carries the
+    skew and covers serial months, unlike the one ATM vol per contract in IV_SNAPSHOT.
+
+    `strike` is dollars per unit (e.g. 5.05); the file quotes cents scaled by the product's
+    strike_divisor (corn 505, live cattle 2300 for $2.30). An exact listed strike wins;
+    between two listed strikes it interpolates linearly; outside the listed range it takes
+    the nearest. Same side (call/put) first -- the other side only if that side has no vols
+    at all for the month, since parity ties them together. Standard monthly options only
+    (Contract Day 00); weeklies are skipped.
+    """
+    want = put_call.strip().upper()[:1]
+    by_side: Dict[str, Dict[float, float]] = {"C": {}, "P": {}}
+    for r in rows:
+        iv = _num(r.get("Implied Volatility"))
+        side = (r.get("Put/Call") or "").strip().upper()
+        k = _num(r.get("Strike Price"))
+        if not iv or side not in by_side or k is None:
+            continue
+        if (r.get("Contract Day") or "00").strip() not in ("", "0", "00"):
+            continue
+        try:
+            if int(r["Contract Year"]) != year or int(r["Contract Month"]) != month:
+                continue
+        except (KeyError, ValueError):
+            continue
+        by_side[side][k / (100 * strike_divisor)] = iv * 100
+
+    curve = by_side.get(want) or by_side["C" if want == "P" else "P"]
+    if not curve:
+        return None
+    ks = sorted(curve)
+    for k in ks:
+        if abs(k - strike) < 1e-6:
+            return OptionIv(round(curve[k], 4), k, "exact")
+    lo = max((k for k in ks if k < strike), default=None)
+    hi = min((k for k in ks if k > strike), default=None)
+    if lo is not None and hi is not None:
+        w = (strike - lo) / (hi - lo)
+        near = lo if w < 0.5 else hi
+        return OptionIv(round(curve[lo] + w * (curve[hi] - curve[lo]), 4), near, "interpolated")
+    nearest = min(ks, key=lambda k: abs(k - strike))
+    return OptionIv(round(curve[nearest], 4), nearest, "nearest strike")

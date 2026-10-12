@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import streamlit as st
 
 from jsa_risk import state
+from jsa_risk.data.live_iv import lookup_option_iv
 from jsa_risk.pricing.black76 import black76
 from jsa_risk.pricing.stress import Position
 from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name, option_expiry_date
@@ -125,7 +126,17 @@ with field_col:
     ))
 
     if not is_future:
-        draft["iv"] = st.number_input("Implied vol %", value=float(draft["iv"] or 25.0), step=0.5)
+        # This option's own live vol (strike- and expiry-specific, from CME DataMine) is the
+        # starting point, so the model entry price is close to where it actually trades.
+        # It follows the contract/strike you enter; type a vol of your own and it sticks.
+        with st.spinner("Pulling live vol from CME…"):
+            live = lookup_option_iv(commodity, draft["label"], draft["type"], draft["strike"] or 0.0)
+        draft["iv"] = st.number_input(
+            "Implied vol %", value=round(float(live.iv_pct or 25.0), 2), step=0.5,
+            help="Pre-filled with this option's live settlement vol from CME when available "
+                 "(otherwise 25%). Overwrite it with your own.",
+        )
+        st.caption(live.note if live.iv_pct else f"{live.note} Using a 25% placeholder.")
 
     # Priced here, before the entry field, so the field can default to the model value.
     F = get_contract_price(canonical_contract_key(draft["label"], commodity=commodity))
