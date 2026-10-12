@@ -104,3 +104,13 @@ def test_reference_price_ignores_sign_so_a_hedge_does_not_cancel_the_weight():
 
 def test_reference_price_empty_book_falls_back_to_the_commodity_default():
     assert portfolio_reference_price([], price_book, StressState(), today=TODAY) == CORN.default_price
+
+
+def test_shock_windows_support_a_quarter_percent_step():
+    from jsa_risk.ui.charts import shock_grid
+    half, step, grid = shock_grid("±2.5% · 0.25% steps")
+    assert (half, step) == (2.5, 0.25)
+    assert grid[0] == -2.5 and grid[-1] == 2.5 and 0.0 in grid and len(grid) == 21
+    assert grid[11] == 0.25                      # exact, no float drift
+    # the existing whole-percent windows are unchanged
+    assert shock_grid("±10% · 2% steps")[2] == [float(x) for x in range(-10, 11, 2)]

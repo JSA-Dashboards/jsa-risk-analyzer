@@ -22,6 +22,7 @@ from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_po
 # stress differs a lot by product: 1% of live cattle is ~2.4¢/lb, so +/-25% (~60¢) is far
 # more dramatic there than it is for corn.
 SHOCK_WINDOWS = {
+    "±2.5% · 0.25% steps": (2.5, 0.25),
     "±5% · 1% steps": (5, 1),
     "±10% · 2% steps": (10, 2),
     "±25% · 5% steps": (25, 5),
@@ -29,10 +30,17 @@ SHOCK_WINDOWS = {
 DEFAULT_SHOCK_WINDOW = "±10% · 2% steps"
 
 
-def shock_grid(window: str = DEFAULT_SHOCK_WINDOW) -> Tuple[int, int, List[float]]:
+def _steps(half_range: float, step: float) -> List[float]:
+    """-half_range..+half_range in `step` increments (fractional steps like 0.25 included),
+    built from integer multiples so 0.25 steps don't accumulate float error and 0 is exact."""
+    n = round(half_range / step)
+    return [round(i * step, 6) for i in range(-n, n + 1)]
+
+
+def shock_grid(window: str = DEFAULT_SHOCK_WINDOW) -> Tuple[float, float, List[float]]:
     """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0])."""
     half_range, step = SHOCK_WINDOWS.get(window, SHOCK_WINDOWS[DEFAULT_SHOCK_WINDOW])
-    return half_range, step, [float(p) for p in range(-half_range, half_range + 1, step)]
+    return half_range, step, _steps(half_range, step)
 
 
 VOL_SHOCKS_BOTTOM_UP = [-30, -15, 0, 15, 30]  # last item renders at the top of the heatmap
@@ -231,11 +239,12 @@ def render_payoff_chart(
     # curve instead of hitting blank space at the edge of what used to be the only data.
     default_view, step, _ = shock_grid(shock_window)
     compute_range = default_view * 3
-    xs = [float(p) for p in range(-compute_range, compute_range + 1, step)]  # % of contract value
+    xs = _steps(compute_range, step)  # % of the average price
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
     # Tick at every step inside the default window, then only at multiples of the window
     # beyond it, so a zoomed-out view doesn't turn the axis into a wall of two-line labels.
-    tick_vals = [x for x in xs if abs(x) <= default_view or x % default_view == 0]
+    tick_vals = [x for x in xs
+                 if abs(x) <= default_view or abs(x / default_view - round(x / default_view)) < 1e-9]
     tick_text = [_shock_tick(x, ref_price) for x in tick_vals]
 
     # One expiry date per distinct expiration among current option positions -- not just
