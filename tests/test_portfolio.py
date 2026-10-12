@@ -114,3 +114,16 @@ def test_shock_windows_support_a_quarter_percent_step():
     assert grid[11] == 0.25                      # exact, no float drift
     # the existing whole-percent windows are unchanged
     assert shock_grid("±10% · 2% steps")[2] == [float(x) for x in range(-10, 11, 2)]
+
+
+def test_live_cattle_shocks_are_a_fixed_half_cent_ladder():
+    from jsa_risk.pricing.commodities import CORN, LIVE_CATTLE
+    from jsa_risk.ui.charts import _shock_cents, _shock_tick, shock_grid, shocks_in_cents
+    ref = 2.26
+    half, step, grid = shock_grid("ignored", LIVE_CATTLE, ref)
+    cents = [round(_shock_cents(p, ref) * 100, 6) for p in grid]
+    assert cents == [c * 0.5 for c in range(-10, 11)]            # -5.0, -4.5, ... +5.0 in 0.5c steps
+    assert 0.0 in grid and len(grid) == 21
+    assert shocks_in_cents(LIVE_CATTLE) and not shocks_in_cents(CORN)
+    assert _shock_tick(grid[11], ref, LIVE_CATTLE).startswith("+0.5¢")   # cents lead the label
+    assert shock_grid("±10% · 2% steps", CORN, 4.6)[2][0] == -10.0       # other products keep the % windows

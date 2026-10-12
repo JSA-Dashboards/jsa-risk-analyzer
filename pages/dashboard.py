@@ -5,11 +5,13 @@ from jsa_risk.ui.blotter import render_editable_blotter
 from jsa_risk.ui.cash_position import render_cash_position_entry
 from jsa_risk.ui.charts import (
     DEFAULT_SHOCK_WINDOW,
+    CENTS_SHOCKS,
     SHOCK_WINDOWS,
     render_delta_scenario,
     render_greeks_bars,
     render_payoff_chart,
     render_pnl_heatmap,
+    shocks_in_cents,
 )
 from jsa_risk.ui.kpi import render_kpi_strip, render_var_panel
 from jsa_risk.ui.market_strip import (
@@ -81,19 +83,29 @@ st.markdown("###### Greeks by contract")
 render_greeks_bars(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
-shock_window = st.radio(
-    "Price shock window (applies to the three scenario charts below)",
-    list(SHOCK_WINDOWS),
-    index=list(SHOCK_WINDOWS).index(DEFAULT_SHOCK_WINDOW),
-    horizontal=True,
-    key="shock_window",
+if shocks_in_cents(commodity):
+    # Fixed, not selectable: cattle is traded in fractions of a cent.
+    half_c, step_c = CENTS_SHOCKS[commodity.code]
+    shock_window = DEFAULT_SHOCK_WINDOW      # ignored for a cents-shock commodity
+    st.caption(f"Price shocks for {commodity.name.lower()} are fixed at ±{half_c:g}¢/{commodity.unit} in "
+               f"{step_c:g}¢ steps (applies to the three scenario charts below).")
+else:
+    shock_window = st.radio(
+        "Price shock window (applies to the three scenario charts below)",
+        list(SHOCK_WINDOWS),
+        index=list(SHOCK_WINDOWS).index(DEFAULT_SHOCK_WINDOW),
+        horizontal=True,
+        key="shock_window",
+    )
+shock_axis_text = (
+    f"Price shock (x-axis, ¢ per {commodity.unit}, the same move on every contract, with the % of the "
+    "book's average price beneath)" if shocks_in_cents(commodity) else
+    f"Price shock (x-axis, % of the book's average price, with the ≈¢ per {commodity.unit} move "
+    "beneath, applied equally to every contract)"
 )
 
 st.markdown("###### P&L scenario heatmap")
-st.caption(
-    "Price shock (x-axis, % of the book's average price, with the ≈¢ per "
-    f"{commodity.unit} move beneath, applied equally to every contract) vs. vol shock (y-axis, %) layered on top of the current stress scenario."
-)
+st.caption(f"{shock_axis_text} vs. vol shock (y-axis, %) layered on top of the current stress scenario.")
 render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("###### Delta scenario")
@@ -101,10 +113,11 @@ render_delta_scenario(positions, stress, get_contract_price, commodity=commodity
 
 st.markdown("---")
 st.markdown("###### Portfolio payoff")
-st.caption(
-    f"P&L vs. a {commodity.name.lower()} futures price shock (% of the book's average price, with the ≈¢ per "
-    f"{commodity.unit} move, applied equally to every contract), current vol & time."
+payoff_shock_text = (
+    f"¢ per {commodity.unit}, same move on every contract" if shocks_in_cents(commodity) else
+    f"% of the book's average price, with the ≈¢ per {commodity.unit} move, applied equally to every contract"
 )
+st.caption(f"P&L vs. a {commodity.name.lower()} futures price shock ({payoff_shock_text}), current vol & time.")
 render_payoff_chart(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("---")

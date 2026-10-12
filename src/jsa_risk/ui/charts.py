@@ -37,8 +37,28 @@ def _steps(half_range: float, step: float) -> List[float]:
     return [round(i * step, 6) for i in range(-n, n + 1)]
 
 
-def shock_grid(window: str = DEFAULT_SHOCK_WINDOW) -> Tuple[float, float, List[float]]:
-    """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0])."""
+# Live cattle is quoted and traded in fractions of a cent, so its shocks are fixed in cents
+# per pound rather than a percent window: commodity code -> (half-range ¢, step ¢). The charts
+# still carry them internally as a percent of the book's reference price (cents / price), so
+# the pricing code is unchanged; only the grid and the labels are in cents.
+CENTS_SHOCKS = {"LE": (5.0, 0.5)}
+
+
+def shocks_in_cents(commodity: CommoditySpec) -> bool:
+    return commodity.code in CENTS_SHOCKS
+
+
+def shock_grid(
+    window: str = DEFAULT_SHOCK_WINDOW, commodity: Optional[CommoditySpec] = None,
+    ref_price: Optional[float] = None,
+) -> Tuple[float, float, List[float]]:
+    """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0]).
+    For a cents-shock commodity (live cattle) the window is ignored and the grid is the fixed
+    cents ladder expressed as a percent of `ref_price`."""
+    if commodity is not None and shocks_in_cents(commodity):
+        half_c, step_c = CENTS_SHOCKS[commodity.code]
+        rp = ref_price or commodity.default_price
+        return half_c / rp, step_c / rp, [c / rp for c in _steps(half_c, step_c)]
     half_range, step = SHOCK_WINDOWS.get(window, SHOCK_WINDOWS[DEFAULT_SHOCK_WINDOW])
     return half_range, step, _steps(half_range, step)
 
@@ -71,16 +91,25 @@ def _shock_cents(pct: float, ref_price: float) -> float:
     return pct / 100 * ref_price
 
 
-def _shock_tick(pct: float, ref_price: float) -> str:
-    """Two-line axis tick: the % shock over its cents-per-unit equivalent."""
-    return f"{_fmt_pct_signed(pct)}<br>{_fmt_cents(_shock_cents(pct, ref_price))}"
+def _shock_tick(pct: float, ref_price: float, commodity: Optional[CommoditySpec] = None) -> str:
+    """Two-line axis tick: % over its cents equivalent -- or, for a cents-shock commodity,
+    the cents move over the % it works out to."""
+    cents = _fmt_cents(_shock_cents(pct, ref_price))
+    if commodity is not None and shocks_in_cents(commodity):
+        return f"{cents}<br>{_fmt_pct_signed(round(pct, 2))}"
+    return f"{_fmt_pct_signed(pct)}<br>{cents}"
 
 
-def _shock_hover(pct: float, ref_price: float) -> str:
-    return f"{_fmt_pct_signed(pct)} ({_fmt_cents(_shock_cents(pct, ref_price))})"
+def _shock_hover(pct: float, ref_price: float, commodity: Optional[CommoditySpec] = None) -> str:
+    cents = _fmt_cents(_shock_cents(pct, ref_price))
+    if commodity is not None and shocks_in_cents(commodity):
+        return f"{cents} ({_fmt_pct_signed(round(pct, 2))})"
+    return f"{_fmt_pct_signed(pct)} ({cents})"
 
 
 def _shock_axis_title(ref_price: float, commodity: CommoditySpec) -> str:
+    if shocks_in_cents(commodity):
+        return f"Price shock (¢/{commodity.unit}, same move on every contract · % of ${ref_price:.2f} avg beneath) →"
     return f"Price shock (% of avg price · ≈¢/{commodity.unit} at ${ref_price:.2f}, all contracts) →"
 
 
@@ -102,7 +131,8 @@ def render_pnl_heatmap(
     commodity: CommoditySpec = CORN,
     shock_window: str = DEFAULT_SHOCK_WINDOW,
 ) -> None:
-    _, _, price_shocks = shock_grid(shock_window)
+    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
+    _, _, price_shocks = shock_grid(shock_window, commodity, ref_price)
     # Purely numeric x/y (0,1,2,...) with cosmetic tick labels via update_xaxes/yaxes,
     # rather than handing the Heatmap trace the label strings directly. Plotly's implicit
     # category-axis positioning turned out unreliable for a second overlaid trace: both a
@@ -110,9 +140,8 @@ def render_pnl_heatmap(
     # current-scenario cell, landed off-axis (Plotly silently extended the axis with new
     # tick positions instead of aligning to the heatmap's categories). Numeric coordinates
     # end that ambiguity -- the heatmap and the highlight now share one unambiguous grid.
-    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
-    price_ticks = [_shock_tick(p, ref_price) for p in price_shocks]
-    price_hover = [_shock_hover(p, ref_price) for p in price_shocks]
+    price_ticks = [_shock_tick(p, ref_price, commodity) for p in price_shocks]
+    price_hover = [_shock_hover(p, ref_price, commodity) for p in price_shocks]
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
     x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
@@ -179,10 +208,10 @@ def render_delta_scenario(
     shock_window: str = DEFAULT_SHOCK_WINDOW,
 ) -> None:
     unit = commodity.unit
-    _, _, price_shocks = shock_grid(shock_window)
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
-    price_ticks = [_shock_tick(p, ref_price) for p in price_shocks]
-    price_hover = [_shock_hover(p, ref_price) for p in price_shocks]
+    _, _, price_shocks = shock_grid(shock_window, commodity, ref_price)
+    price_ticks = [_shock_tick(p, ref_price, commodity) for p in price_shocks]
+    price_hover = [_shock_hover(p, ref_price, commodity) for p in price_shocks]
     x_idx = list(range(len(price_shocks)))
     row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity, ref_price) for ps in price_shocks]
     max_abs = max(1.0, max(abs(v) for v in row))
@@ -221,8 +250,8 @@ def render_delta_scenario(
     lo, hi = row[0], row[-1]
     st.caption(
         f"Cell = net position delta ({unit}) under that price shock, sign colored long (green) vs short (red). "
-        f"At {_shock_hover(price_shocks[0], ref_price)}: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
-        f"At {_shock_hover(price_shocks[-1], ref_price)}: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) "
+        f"At {_shock_hover(price_shocks[0], ref_price, commodity)}: {lo:,.0f} {unit} (Δ {lo - base:+,.0f} {unit}) · "
+        f"At {_shock_hover(price_shocks[-1], ref_price, commodity)}: {hi:,.0f} {unit} (Δ {hi - base:+,.0f} {unit}) "
         f"vs current {base:,.0f} {unit}."
     )
 
@@ -237,15 +266,15 @@ def render_payoff_chart(
 ) -> None:
     # Compute well past the default view so zooming/panning out reveals a real, continuing
     # curve instead of hitting blank space at the edge of what used to be the only data.
-    default_view, step, _ = shock_grid(shock_window)
+    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
+    default_view, step, _ = shock_grid(shock_window, commodity, ref_price)
     compute_range = default_view * 3
     xs = _steps(compute_range, step)  # % of the average price
-    ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
     # Tick at every step inside the default window, then only at multiples of the window
     # beyond it, so a zoomed-out view doesn't turn the axis into a wall of two-line labels.
     tick_vals = [x for x in xs
-                 if abs(x) <= default_view or abs(x / default_view - round(x / default_view)) < 1e-9]
-    tick_text = [_shock_tick(x, ref_price) for x in tick_vals]
+                 if abs(x) <= default_view + 1e-6 or abs(x / default_view - round(x / default_view)) < 1e-9]
+    tick_text = [_shock_tick(x, ref_price, commodity) for x in tick_vals]
 
     # One expiry date per distinct expiration among current option positions -- not just
     # the nearest -- so a book with staggered expiries shows every real decay cliff.
@@ -275,7 +304,7 @@ def render_payoff_chart(
     # (much wider) computed dataset -- otherwise the visible curve gets squashed into a
     # sliver by extremes that only occur far outside the default zoom.
     visible_ys = [
-        y for h in horizons for x, y in zip(xs, h["ys"]) if abs(x) <= default_view
+        y for h in horizons for x, y in zip(xs, h["ys"]) if abs(x) <= default_view + 1e-6
     ]
     y_lo, y_hi = min(visible_ys), max(visible_ys)
     y_pad = max((y_hi - y_lo) * 0.1, 1.0)
@@ -287,7 +316,7 @@ def render_payoff_chart(
             x=xs, y=today_h["ys"], mode="lines", name=today_h["label"],
             line=dict(width=today_h["width"], color=today_h["color"]),
             fill="tozeroy", fillcolor="rgba(57,135,229,0.12)",
-            customdata=[_shock_hover(x, ref_price) for x in xs],
+            customdata=[_shock_hover(x, ref_price, commodity) for x in xs],
             hovertemplate="%{y:$,.0f} · shock %{customdata}<extra>" + today_h["label"] + "</extra>",
         )
     )
@@ -312,9 +341,9 @@ def render_payoff_chart(
         hovermode="x unified",
         xaxis=dict(
             title=_shock_axis_title(ref_price, commodity),
-            range=[-default_view, default_view],
+            range=[-default_view - 1e-6, default_view + 1e-6],
             tickvals=tick_vals, ticktext=tick_text,
-            ticksuffix="%", automargin=True,
+            ticksuffix="" if shocks_in_cents(commodity) else "%", automargin=True,
         ),
         yaxis_title="Book P&L ($)",
         yaxis=dict(tickprefix="$", separatethousands=True, range=[y_lo - y_pad, y_hi + y_pad]),
@@ -325,9 +354,14 @@ def render_payoff_chart(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     st.plotly_chart(fig, use_container_width=True)
+    if shocks_in_cents(commodity):
+        half_c = CENTS_SHOCKS[commodity.code][0]
+        view_text, range_text = f"{half_c:g}¢", f"{half_c * 3:g}¢"
+    else:
+        view_text, range_text = f"{default_view:g}% of the average price", f"{compute_range:g}%"
     st.caption(
         f"Current mark: **{_fmt_dollars_signed(cur_val)}** at a 0% shock (blue dot). Default view is "
-        f"±{default_view}% of the average price; drag or zoom out to see up to ±{compute_range}%. "
+        f"±{view_text}; drag or zoom out to see up to ±{range_text}. "
         f"Other lines hold vol at the current scenario and roll time forward — theta & gamma "
         f"reshape the curve as they decay."
     )
