@@ -33,7 +33,6 @@ def _default_draft() -> dict:
         "expiry": date.today() + timedelta(days=60),
         "qty": 10,
         "iv": 25.0,
-        "use_model_entry": True,
         "entry": None,
     }
 
@@ -48,7 +47,6 @@ def _on_type_change() -> None:
     draft["type"] = new_type
     if new_type == "future":
         draft["strike"], draft["expiry"], draft["iv"] = None, None, None
-        draft["use_model_entry"] = True
     elif draft.get("strike") is None:
         draft["strike"] = round(get_contract_price(canonical_contract_key(draft["label"], commodity=commodity)), 2)
         draft["expiry"] = date.today() + timedelta(days=60)
@@ -90,42 +88,39 @@ with field_col:
     if not is_future:
         draft["iv"] = st.number_input("Implied vol %", value=float(draft["iv"] or 25.0), step=0.5)
 
-    draft["use_model_entry"] = st.checkbox(
-        "Use current futures mark as entry" if is_future else "Use model price as entry",
-        value=draft["use_model_entry"],
-    )
-    if not draft["use_model_entry"]:
-        draft["entry"] = st.number_input(
-            "Entry price" if is_future else "Entry premium",
-            value=float(draft["entry"]) if draft["entry"] is not None else 0.0,
-            step=0.01, format="%.4f",
-        )
-    else:
-        draft["entry"] = None
-
-with preview_col:
+    # Priced here, before the entry field, so the field can default to the model value.
     F = get_contract_price(canonical_contract_key(draft["label"], commodity=commodity))
     pos_mult = draft["qty"] * commodity.contract_size
-
+    result = None
+    dte = None
     if is_future:
         model_price = F
-        entry_price = F if draft["entry"] is None else draft["entry"]
-        delta_d, gamma_d, vega_d, theta_d = float(pos_mult), 0.0, 0.0, 0.0
-        dte = None
     else:
         dte = max((draft["expiry"] - date.today()).days, 0) if draft["expiry"] else 0
-        T = dte / 365
-        strike = draft["strike"] or 0.0001
-        iv = draft["iv"] or 0.01
-        result = black76(F, strike, T, iv, draft["type"] == "call")
+        result = black76(F, draft["strike"] or 0.0001, dte / 365, draft["iv"] or 0.01, draft["type"] == "call")
         model_price = result.price
-        entry_price = model_price if draft["entry"] is None else draft["entry"]
+
+    # Always editable. Starts at the model value (and follows it as strike/IV/etc. change),
+    # but whatever you type sticks, so the position can carry your actual fill.
+    entry_label = "Entry price" if is_future else "Entry premium"
+    entry_price = st.number_input(
+        f"{entry_label} ($/{commodity.unit})", value=round(float(model_price), 4), min_value=0.0,
+        step=0.01, format="%.4f",
+        help=f"Pre-filled with the model value (${model_price:.4f}). Overwrite it with your actual "
+             "fill to book the difference as P&L from day one.",
+    )
+    draft["entry"] = entry_price
+
+with preview_col:
+    if is_future:
+        delta_d, gamma_d, vega_d, theta_d = float(pos_mult), 0.0, 0.0, 0.0
+    else:
         delta_d = result.delta * pos_mult
         gamma_d = result.gamma * pos_mult
         vega_d = (result.vega / 100) * pos_mult
         theta_d = (result.theta / 365) * pos_mult
 
-    pnl = (model_price - entry_price) * pos_mult
+    pnl = (round(float(model_price), 4) - entry_price) * pos_mult   # same 4dp as the field, so an untouched entry is exactly $0
 
     title = (draft["label"] or commodity.name) + " " + ("FUTURE" if is_future else f"{draft['type'].upper()} {draft['strike']}")
     st.markdown(f"**{title}**")
@@ -138,7 +133,7 @@ with preview_col:
 
     c1, c2 = st.columns(2)
     c1.metric("Model price", f"${model_price:.3f}")
-    c2.metric("Entry price" if is_future else "Entry premium", f"${entry_price:.3f}")
+    c2.metric(entry_label, f"${entry_price:.3f}")
     c1.metric(f"Delta ({commodity.unit})", _fmt_unit_signed(delta_d, commodity.unit))
     c2.metric("Gamma $", _fmt_dollars_signed(gamma_d))
     c1.metric("Vega $/vol pt", _fmt_dollars_signed(vega_d))

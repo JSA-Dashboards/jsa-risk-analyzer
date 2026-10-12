@@ -51,13 +51,12 @@ def render_cash_position_entry(positions: List[Position], commodity: CommoditySp
         help=f"+ long / owned, − short / sold forward. Whole {commodity.unit}.",
     )
     mark = state.get_contract_price(key)
-    use_mark = c_entry.checkbox("Entry at current mark", value=True, key=f"cash_use_mark_{commodity.code}")
-    entry = mark
-    if not use_mark:
-        entry = c_entry.number_input(
-            f"Entry price ($/{commodity.unit})", value=float(mark), step=0.01, format="%.4f",
-            key=f"cash_entry_{commodity.code}_{key}",
-        )
+    # Starts at the current mark (and follows it), but whatever you type sticks -- so the
+    # position can carry your actual cost rather than today's price.
+    entry = c_entry.number_input(
+        f"Entry price ($/{commodity.unit})", value=round(float(mark), 4), min_value=0.0, step=0.01,
+        format="%.4f", help=f"Pre-filled with the current mark (${mark:.4f}). Overwrite with your actual cost.",
+    )
 
     lots = units / commodity.contract_size
     if units:
