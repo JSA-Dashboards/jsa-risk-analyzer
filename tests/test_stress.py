@@ -193,3 +193,18 @@ class TestCashPosition:
 
     def test_positions_are_not_cash_by_default(self):
         assert make_future().is_cash is False
+
+
+def test_updating_a_contract_mark_drops_stale_last_ticks_on_that_contract_only():
+    from jsa_risk.pricing.commodities import CORN
+    from jsa_risk.state import positions_without_ticks_for
+    dec_fut = Position(id=1, label="ZCZ26", type="future", qty=-5, entry=4.8, last_tick=5.01)
+    dec_call = Position(id=2, label="ZCZ26", type="call", qty=3, entry=0.2, strike=5.0,
+                        expiry_date=date(2026, 12, 1), iv=20.0, last_tick=0.11)
+    mar_fut = Position(id=3, label="ZCH27", type="future", qty=2, entry=5.1, last_tick=5.2)
+    out = positions_without_ticks_for([dec_fut, dec_call, mar_fut], "Z26", CORN)
+    assert [p.last_tick for p in out] == [None, None, 5.2]           # only Dec lost its tick
+    # and the live mark now drives the Mark and P&L
+    live = lambda k: 4.90
+    r = eval_position(out[0], StressState(), live, today=TODAY)
+    assert r.price == 4.90 and r.pnl == pytest.approx((4.90 - 4.8) * -5 * 5000)

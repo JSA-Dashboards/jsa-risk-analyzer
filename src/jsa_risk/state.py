@@ -29,7 +29,7 @@ import streamlit as st
 
 from jsa_risk.data import reference_repo
 from jsa_risk.pricing.commodities import CORN, CommoditySpec, get_commodity, reference_key
-from jsa_risk.pricing.stress import Position, StressState
+from jsa_risk.pricing.stress import Position, StressState, effective_underlying_key
 
 # session_state keys tied to whatever commodity was previously selected -- cleared on a
 # commodity switch made elsewhere (e.g. the sidebar) so nothing from the old book/screen
@@ -172,9 +172,23 @@ def get_contract_price(canonical_key: str) -> float:
     return reference_repo.get_contract_price(reference_key(spec, canonical_key), default=spec.default_price)
 
 
+def positions_without_ticks_for(positions: List[Position], canonical_key: str, commodity: CommoditySpec) -> List[Position]:
+    """Positions with last_tick cleared where they price off this contract. A last tick is
+    the broker's price at import time; once the contract's mark has been updated it's stale,
+    and left in place it would keep the blotter's Mark and P&L on the old price while the
+    scenario charts (which only use live marks) moved on."""
+    return [
+        replace(p, last_tick=None)
+        if p.last_tick is not None and effective_underlying_key(p, commodity=commodity) == canonical_key else p
+        for p in positions
+    ]
+
+
 def set_contract_price(canonical_key: str, price: float, source: str = "manual") -> None:
     spec = get_commodity_spec()
     reference_repo.set_contract_price(reference_key(spec, canonical_key), price, source)
+    # The live mark now wins for everything priced off this contract.
+    st.session_state.positions = positions_without_ticks_for(st.session_state.positions, canonical_key, spec)
 
 
 def snapshot_iv(canonical_key: str) -> float:
