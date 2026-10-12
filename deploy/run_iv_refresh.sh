@@ -41,7 +41,10 @@ fi
 rc=0
 {
     echo "=== IV refresh start $(date -Is) ==="
-    "$VENV/bin/python" scripts/refresh_iv_from_cme.py
+    # --commodity ALL, because the script defaults to corn alone. Without it the
+    # nightly run silently wrote 8 corn rows and no cattle, even after the client
+    # learned to fetch XCME_OK.
+    "$VENV/bin/python" scripts/refresh_iv_from_cme.py --commodity ALL
     rc=$?
     echo "=== IV refresh finished $(date -Is) rc=$rc ==="
 } >>"$LOG" 2>&1
