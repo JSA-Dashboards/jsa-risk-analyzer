@@ -14,9 +14,9 @@ from jsa_risk.pricing.commodities import CORN, CommoditySpec
 from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at, portfolio_reference_price
 from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
-# Price shocks are a percent of each contract's own value -- not a flat grain-price move --
-# so the same grid works for corn, soybeans, and cattle alike. Cents-per-unit labels are
-# derived from the portfolio's reference price (see portfolio_reference_price).
+# Price shocks are a percent of the book's reference price (see portfolio_reference_price),
+# applied as one parallel cents-per-unit move to every contract -- so the same grid works for
+# corn, soybeans, and cattle alike, and a delta-neutral book stays flat.
 #
 # The window (half-range %, step %) is user-selectable because what counts as a realistic
 # stress differs a lot by product: 1% of live cattle is ~2.4¢/lb, so +/-25% (~60¢) is far
@@ -73,7 +73,7 @@ def _shock_hover(pct: float, ref_price: float) -> str:
 
 
 def _shock_axis_title(ref_price: float, commodity: CommoditySpec) -> str:
-    return f"Price shock (% of contract · ≈¢/{commodity.unit} at ${ref_price:.2f} avg) →"
+    return f"Price shock (% of avg price · ≈¢/{commodity.unit} at ${ref_price:.2f}, all contracts) →"
 
 
 def _fmt_dollars_signed(v: float) -> str:
@@ -109,7 +109,7 @@ def render_pnl_heatmap(
     x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
     z = [
-        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity) for ps in price_shocks]
+        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price) for ps in price_shocks]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
@@ -176,7 +176,7 @@ def render_delta_scenario(
     price_ticks = [_shock_tick(p, ref_price) for p in price_shocks]
     price_hover = [_shock_hover(p, ref_price) for p in price_shocks]
     x_idx = list(range(len(price_shocks)))
-    row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity) for ps in price_shocks]
+    row = [portfolio_delta_at(positions, get_contract_price, stress, ps, today, commodity, ref_price) for ps in price_shocks]
     max_abs = max(1.0, max(abs(v) for v in row))
     base = row[price_shocks.index(0.0)]
     text = [[f"{v:,.0f}" for v in row]]
@@ -258,9 +258,9 @@ def render_payoff_chart(
             "color": EXPIRY_COLORS[i % len(EXPIRY_COLORS)],
         })
     for h in horizons:
-        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity) for s in xs]
+        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity, ref_price) for s in xs]
 
-    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity)
+    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity, ref_price)
 
     # Fit the initial Y-range to just the default-visible window's values, not the whole
     # (much wider) computed dataset -- otherwise the visible curve gets squashed into a
@@ -318,7 +318,7 @@ def render_payoff_chart(
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
         f"Current mark: **{_fmt_dollars_signed(cur_val)}** at a 0% shock (blue dot). Default view is "
-        f"±{default_view}% of contract value; drag or zoom out to see up to ±{compute_range}%. "
+        f"±{default_view}% of the average price; drag or zoom out to see up to ±{compute_range}%. "
         f"Other lines hold vol at the current scenario and roll time forward — theta & gamma "
         f"reshape the curve as they decay."
     )

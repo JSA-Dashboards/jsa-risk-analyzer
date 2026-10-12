@@ -91,8 +91,8 @@ shock_window = st.radio(
 
 st.markdown("###### P&L scenario heatmap")
 st.caption(
-    "Price shock (x-axis, % of each contract's value, with the ≈¢ per "
-    f"{commodity.unit} equivalent beneath) vs. vol shock (y-axis, %) layered on top of the current stress scenario."
+    "Price shock (x-axis, % of the book's average price, with the ≈¢ per "
+    f"{commodity.unit} move beneath, applied equally to every contract) vs. vol shock (y-axis, %) layered on top of the current stress scenario."
 )
 render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
@@ -102,8 +102,8 @@ render_delta_scenario(positions, stress, get_contract_price, commodity=commodity
 st.markdown("---")
 st.markdown("###### Portfolio payoff")
 st.caption(
-    f"P&L vs. a {commodity.name.lower()} futures price shock (% of contract value, with the ≈¢ per "
-    f"{commodity.unit} equivalent), current vol & time."
+    f"P&L vs. a {commodity.name.lower()} futures price shock (% of the book's average price, with the ≈¢ per "
+    f"{commodity.unit} move, applied equally to every contract), current vol & time."
 )
 render_payoff_chart(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 

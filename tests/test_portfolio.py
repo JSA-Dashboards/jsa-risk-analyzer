@@ -42,15 +42,26 @@ def test_portfolio_pnl_at_scales_with_price_shock_for_a_long_future():
     assert pnl_up - pnl_flat == pytest.approx(0.50 * 10 * 5000)
 
 
-def test_price_shock_is_a_percent_of_each_contracts_own_value():
-    """The same +10% moves a $6.00 contract by 60c and a $5.00 contract by 50c -- not one
-    flat dollar amount applied to both."""
+def test_price_shock_is_one_parallel_move_across_contracts():
+    """+10% is a % of the book's reference price, applied as the same cents move to every
+    contract -- not scaled by each contract's own price."""
     dec = a_future(10)
     mar = Position(id=3, label="x", type="future", qty=10, entry=5.00, underlying_override="H27")
     base = StressState()
+    ref = portfolio_reference_price([dec, mar], price_book, base, TODAY)
     up = portfolio_pnl_at([dec, mar], price_book, base, price_shock_pct=10, vol_shock_pct=0, days_fwd=0, today=TODAY)
     flat = portfolio_pnl_at([dec, mar], price_book, base, price_shock_pct=0, vol_shock_pct=0, days_fwd=0, today=TODAY)
-    assert up - flat == pytest.approx((0.50 + 0.60) * 10 * 5000)
+    assert up - flat == pytest.approx(2 * 0.10 * ref * 10 * 5000)
+
+
+def test_a_unit_neutral_book_across_differently_priced_contracts_is_flat():
+    """Long and short the same bushels on a $5 and a $6 contract has zero delta, so no
+    price move -- up or down -- may change its P&L."""
+    long_dec = a_future(10)
+    short_mar = Position(id=3, label="x", type="future", qty=-10, entry=5.00, underlying_override="H27")
+    base = StressState()
+    pnl = [portfolio_pnl_at([long_dec, short_mar], price_book, base, s, 0, 0, TODAY) for s in (-10, 0, 10)]
+    assert pnl[0] == pytest.approx(pnl[1]) == pytest.approx(pnl[2])
 
 
 def test_price_shock_layers_on_top_of_the_stress_slider():

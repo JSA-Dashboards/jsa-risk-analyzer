@@ -3,9 +3,13 @@ table, and the payoff chart instead of each reimplementing this inline.
 
 Both functions layer an *additional* shock on top of the current stress-slider state
 (`base_stress`), exactly as the original portfolioPnlAt()/portfolioDeltaAt() did. The
-price shock is a percent of each position's own underlying contract value (not a flat
-$ move in grain terms), so a +10% shock moves a $4.60 contract and a $4.90 contract by
-different dollar amounts -- the way the relative price of the contracts actually moves.
+price shock is expressed as a percent of the book's reference price (see
+portfolio_reference_price) but applied as ONE parallel move: every contract shifts by the
+same cents per unit. That keeps a delta-neutral book flat -- a book long and short the same
+number of bushels/pounds across differently-priced contracts has no P&L from a parallel
+move, whatever the contracts' own prices. (An earlier version scaled the shock by each
+contract's own price, which tilted a unit-neutral book by the price difference between its
+legs.)
 """
 from datetime import date
 from typing import Callable, Iterable, Optional
@@ -30,9 +34,10 @@ def _shocked_future(
     price_shock_pct: float,
     today: Optional[date],
     commodity: CommoditySpec,
+    ref_price: float,
 ) -> float:
     base_F = stressed_future(get_contract_price(effective_underlying_key(position, today, commodity)), base_stress)
-    return base_F * (1 + price_shock_pct / 100)
+    return base_F + price_shock_pct / 100 * ref_price
 
 
 def portfolio_reference_price(
@@ -68,10 +73,14 @@ def portfolio_pnl_at(
     days_fwd: float,
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
+    ref_price: Optional[float] = None,
 ) -> float:
+    positions = list(positions)
+    if ref_price is None:
+        ref_price = portfolio_reference_price(positions, get_contract_price, base_stress, today, commodity)
     total = 0.0
     for p in positions:
-        F = _shocked_future(p, get_contract_price, base_stress, price_shock_pct, today, commodity)
+        F = _shocked_future(p, get_contract_price, base_stress, price_shock_pct, today, commodity, ref_price)
         if p.type == "future":
             sigma = 0.5
         else:
@@ -93,13 +102,17 @@ def portfolio_delta_at(
     price_shock_pct: float,
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
+    ref_price: Optional[float] = None,
 ) -> float:
     """Net delta ($, i.e. unit-equivalent exposure) at a hypothetical price, holding
     vol and time at the current stress scenario (no extra vol/time axis, unlike
     `portfolio_pnl_at`)."""
+    positions = list(positions)
+    if ref_price is None:
+        ref_price = portfolio_reference_price(positions, get_contract_price, base_stress, today, commodity)
     total = 0.0
     for p in positions:
-        F = _shocked_future(p, get_contract_price, base_stress, price_shock_pct, today, commodity)
+        F = _shocked_future(p, get_contract_price, base_stress, price_shock_pct, today, commodity, ref_price)
         r = eval_position(p, base_stress, get_contract_price, F_override=F, today=today, commodity=commodity)
         total += r.delta_d
     return total
