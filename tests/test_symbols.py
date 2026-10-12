@@ -158,3 +158,23 @@ def test_upcoming_contract_keys_skips_contracts_that_have_started():
 def test_upcoming_contract_keys_follows_each_commoditys_own_months():
     from jsa_risk.pricing.symbols import upcoming_contract_keys
     assert upcoming_contract_keys(SOYBEANS, today=date(2026, 10, 9), count=3) == ["X26", "F27", "H27"]
+
+
+def test_option_expiry_date_matches_cme_last_trade_dates():
+    from jsa_risk.pricing.symbols import option_expiry_date
+    # Corn: last Friday >=2 business days before the last business day of the prior month.
+    assert option_expiry_date("ZCZ26") == date(2026, 11, 20)
+    assert option_expiry_date("ZCH27") == date(2027, 2, 19)
+    assert option_expiry_date("ZCK27") == date(2027, 4, 23)
+    # An October serial option expires in September, off its own month, not December's.
+    assert option_expiry_date("ZCV26") == date(2026, 9, 25)
+    # Live cattle: first Friday of the contract month (matches DataMine's Last Trade Date).
+    assert option_expiry_date("LEG27", LIVE_CATTLE) == date(2027, 2, 5)
+    assert option_expiry_date("LEZ26", LIVE_CATTLE) == date(2026, 12, 4)
+
+
+def test_option_expiry_date_is_none_for_unreadable_symbols():
+    from jsa_risk.pricing.symbols import option_expiry_date
+    assert option_expiry_date("") is None
+    assert option_expiry_date("junk") is None
+    assert option_expiry_date(None) is None

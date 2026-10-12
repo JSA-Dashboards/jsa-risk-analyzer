@@ -5,7 +5,7 @@ import streamlit as st
 from jsa_risk import state
 from jsa_risk.pricing.black76 import black76
 from jsa_risk.pricing.stress import Position
-from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name
+from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name, option_expiry_date
 from jsa_risk.state import get_contract_price
 
 INSTRUMENTS = ["call", "put", "future"]
@@ -42,6 +42,28 @@ if "add_pos_draft" not in st.session_state:
 draft = st.session_state.add_pos_draft
 
 
+# Expiration date and days-to-expiry are two views of one value: edit either and the other
+# follows. Both are keyed widgets so a contract symbol can load the actual expiry into them.
+EXPIRY_KEY, DTE_KEY = "add_pos_expiry", "add_pos_dte"
+
+
+def _set_expiry(d: date) -> None:
+    st.session_state[EXPIRY_KEY] = d
+    st.session_state[DTE_KEY] = max((d - date.today()).days, 0)
+
+
+def _on_expiry_edit() -> None:
+    _set_expiry(st.session_state[EXPIRY_KEY])
+
+
+def _on_dte_edit() -> None:
+    _set_expiry(date.today() + timedelta(days=int(st.session_state[DTE_KEY])))
+
+
+if EXPIRY_KEY not in st.session_state:
+    _set_expiry(draft["expiry"] or (date.today() + timedelta(days=60)))
+
+
 def _on_type_change() -> None:
     new_type = st.session_state.add_pos_type
     draft["type"] = new_type
@@ -51,6 +73,8 @@ def _on_type_change() -> None:
         draft["strike"] = round(get_contract_price(canonical_contract_key(draft["label"], commodity=commodity)), 2)
         draft["expiry"] = date.today() + timedelta(days=60)
         draft["iv"] = 25.0
+        draft["expiry_loaded_for"] = None     # let the symbol's actual expiry load again
+        _set_expiry(draft["expiry"])
 
 
 st.markdown("###### New position ticket")
@@ -77,9 +101,24 @@ with field_col:
         draft["strike"] = st.number_input(
             "Strike", value=float(draft["strike"] or commodity.default_price), step=0.01, format="%.2f",
         )
-        draft["expiry"] = st.date_input(
-            "Expiration date", value=draft["expiry"] or (date.today() + timedelta(days=60)),
+        # A new contract symbol loads that option's actual expiry; after that, whatever you
+        # set (date or days) sticks until the symbol changes again.
+        actual_expiry = option_expiry_date(draft["label"], commodity)
+        if actual_expiry and draft.get("expiry_loaded_for") != draft["label"]:
+            _set_expiry(actual_expiry)
+            draft["expiry_loaded_for"] = draft["label"]
+        e_col, d_col = st.columns(2)
+        draft["expiry"] = e_col.date_input(
+            "Expiration date", key=EXPIRY_KEY, on_change=_on_expiry_edit,
+            help="Loaded from the contract symbol's actual option expiry -- overwrite it for "
+                 "weekly options or if an exchange holiday shifts it.",
         )
+        d_col.number_input(
+            "Days to expiry", min_value=0, step=1, key=DTE_KEY, on_change=_on_dte_edit,
+            help="Calendar days from today. Edit this or the date; the other updates.",
+        )
+        if actual_expiry:
+            st.caption(f"Actual expiry for {draft['label']}: {actual_expiry:%a %b %d, %Y}.")
 
     draft["qty"] = int(st.number_input(
         "Quantity (lots)", value=int(draft["qty"]), step=1, help="+long / -short",
@@ -147,6 +186,8 @@ reset_clicked = reset_col.button("Clear form")
 
 if reset_clicked:
     st.session_state.add_pos_draft = _default_draft()
+    st.session_state.pop(EXPIRY_KEY, None)
+    st.session_state.pop(DTE_KEY, None)
     st.rerun()
 
 if submit_clicked:

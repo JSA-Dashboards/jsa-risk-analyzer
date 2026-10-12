@@ -22,7 +22,7 @@ and for existing callers/tests) -- the dashboard shows one commodity at a time (
 state.py), so callers thread through whichever spec the session has selected.
 """
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, Tuple
 
 from .commodities import CORN, CommoditySpec
@@ -168,3 +168,62 @@ def upcoming_contract_keys(
                 if len(keys) == count:
                     return keys
     return keys
+
+
+def _is_business_day(d: date) -> bool:
+    # Weekdays only: exchange holidays aren't modelled, so a date landing next to one can be a
+    # day off -- callers should leave the result editable.
+    return d.weekday() < 5
+
+
+def _last_business_day(year: int, month: int) -> date:
+    d = date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+    while not _is_business_day(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+    d = date(year, month, 1)
+    d += timedelta(days=(weekday - d.weekday()) % 7)
+    return d + timedelta(weeks=n - 1)
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    d = date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+    return d - timedelta(days=(d.weekday() - weekday) % 7)
+
+
+def _cbot_grain_option_expiry(year: int, month: int) -> date:
+    """The last Friday that precedes, by at least two business days, the last business day
+    of the month before the option month (CBOT corn and soybean options)."""
+    prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+    last_bd = _last_business_day(prev_year, prev_month)
+    d = last_bd - timedelta(days=1)
+    while True:
+        if d.weekday() == 4:
+            after = sum(1 for i in range(1, (last_bd - d).days + 1) if _is_business_day(d + timedelta(days=i)))
+            if after >= 2:
+                return d
+        d -= timedelta(days=1)
+
+
+def option_expiry_date(raw_label: Optional[str], commodity: CommoditySpec = CORN) -> Optional[date]:
+    """Best-effort actual last-trade date of the monthly option the symbol names (its own
+    month/year, not the underlying it prices off -- an Oct option expires in September).
+    None when the symbol can't be read or the commodity's rule isn't modelled.
+
+    Corn/soybeans: the CBOT rule above. Live cattle: first Friday of the contract month
+    (checked against CME DataMine's Last Trade Dates). Feeder cattle: last Thursday of the
+    contract month. Weekly/short-dated options and exchange holidays aren't covered."""
+    s = (raw_label or "").strip().upper()
+    if len(s) < 5 or s[2] not in MONTH_NUMBERS or not s[3:5].isdigit():
+        return None
+    month, year = MONTH_NUMBERS[s[2]], 2000 + int(s[3:5])
+    if commodity.code in ("ZC", "ZS"):
+        return _cbot_grain_option_expiry(year, month)
+    if commodity.code == "LE":
+        return _nth_weekday(year, month, 4, 1)
+    if commodity.code == "GF":
+        return _last_weekday(year, month, 3)
+    return None
