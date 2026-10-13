@@ -231,4 +231,9 @@ if submit_clicked:
         st.session_state["_flash_added"] = (
             f"Added {contract_display_name(draft['label'], commodity=commodity)} {draft['type']} — position #{new_id}."
         )
+        if st.session_state.get("_embedded"):
+            # Hosted inside the JSA admin portal, whose page switcher (not st.navigation)
+            # owns the pages: ask it to open the dashboard on the next run.
+            st.session_state["_goto_page"] = "Risk dashboard"
+            st.rerun()
         st.switch_page("pages/dashboard.py")

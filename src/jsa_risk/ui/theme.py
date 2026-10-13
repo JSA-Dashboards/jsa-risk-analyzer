@@ -13,9 +13,9 @@ _ACCENT_CSS = """
   align-items:center; box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
 .jsa-brand-title { font-weight:800; font-size:20px; letter-spacing:0.01em; }
 .jsa-brand-title span { color:#d55181; }
-.jsa-brand-sub { font-size:13px; color:#c3c2b7; }
-.jsa-disclaimer { font-size:10.5px; color:#898781; line-height:1.6; border-top:1px solid #383835;
-  border-bottom:1px solid #383835; padding:12px 0; margin: 4px 0 18px; }
+.jsa-brand-sub { font-size:13px; opacity:0.72; }
+.jsa-disclaimer { font-size:10.5px; opacity:0.68; line-height:1.6; border-top:1px solid rgba(128,128,128,0.35);
+  border-bottom:1px solid rgba(128,128,128,0.35); padding:12px 0; margin: 4px 0 18px; }
 .jsa-disclaimer p { margin: 0 0 10px; }
 .jsa-disclaimer p:last-child { margin-bottom: 0; }
 </style>
