@@ -101,9 +101,23 @@ shock_axis_text = (
     "beneath, applied equally to every contract)"
 )
 
-st.markdown("###### P&L scenario heatmap")
-st.caption(f"{shock_axis_text} vs. vol shock (y-axis, %) layered on top of the current stress scenario.")
-render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
+st.markdown("###### P&L scenario heatmap — total since entry")
+st.caption(
+    f"{shock_axis_text} vs. vol shock (y-axis, %) layered on top of the current stress "
+    "scenario. Each cell is cumulative P&L against your entry prices, so the outlined cell "
+    "is where the book stands today."
+)
+render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity,
+                   shock_window=shock_window)
+
+st.markdown("###### P&L scenario heatmap — change from here")
+st.caption(
+    "The same grid, re-centred on today: each cell is what that move is worth to you from "
+    "where the book stands now, rather than cumulative P&L since entry. Costs no extra "
+    "fetch — it is the grid above less its own centre."
+)
+render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity,
+                   shock_window=shock_window, centre_on_today=True)
 
 st.markdown("###### Delta scenario")
 render_delta_scenario(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)

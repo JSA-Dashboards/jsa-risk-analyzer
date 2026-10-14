@@ -37,8 +37,11 @@ def _steps(half_range: float, step: float) -> List[float]:
     return [round(i * step, 6) for i in range(-n, n + 1)]
 
 
-# Live cattle is quoted and traded in fractions of a cent, so its shocks are laddered in cents
-# per pound rather than as a percent window: (half-range ¢, step ¢). The charts still carry
+# Cattle is quoted and traded in fractions of a cent, so its shocks are laddered in cents
+# per pound rather than as a percent window: (half-range ¢, step ¢). Both contracts qualify:
+# live cattle and feeder cattle are both $/lb, and a feeder book was on the percent ladder
+# until 2026-10 for no reason anyone recorded -- it reads as an oversight from when cattle
+# support landed one contract at a time, not a decision. The charts still carry
 # them internally as a percent of the book's reference price (cents / price), so the pricing
 # code is unchanged; only the grid and the labels are in cents.
 #
@@ -52,7 +55,13 @@ CENTS_SHOCK_WINDOWS = {
     "±20¢ · 2¢ steps": (20.0, 2.0),
 }
 DEFAULT_CENTS_SHOCK_WINDOW = "±5¢ · 0.5¢ steps"
-CENTS_SHOCK_COMMODITIES = {"LE"}
+# Per-contract default, because the same cents ladder is not the same window. A nickel on a
+# ~$2.28 live steer is 2.2%; on a ~$3.40 feeder it is 1.5%, and feeders carry the higher
+# daily vol of the two (see CommoditySpec.daily_vol). So a feeder book opens one preset
+# wider -- same ladder, same labels, just a default that covers a comparable day's range.
+# Anything not named here falls back to DEFAULT_CENTS_SHOCK_WINDOW.
+DEFAULT_CENTS_WINDOW_BY_CODE = {"GF": "±10¢ · 1¢ steps"}
+CENTS_SHOCK_COMMODITIES = {"LE", "GF"}
 
 
 def shocks_in_cents(commodity: CommoditySpec) -> bool:
@@ -60,7 +69,7 @@ def shocks_in_cents(commodity: CommoditySpec) -> bool:
 
 
 def shock_windows_for(commodity: Optional[CommoditySpec]) -> dict:
-    """The window presets to offer for a commodity -- cents for live cattle, percent for the
+    """The window presets to offer for a commodity -- cents for cattle, percent for the
     rest. Keyed by the same label the user picks, so `shock_grid` can look one up directly."""
     if commodity is not None and shocks_in_cents(commodity):
         return CENTS_SHOCK_WINDOWS
@@ -69,7 +78,7 @@ def shock_windows_for(commodity: Optional[CommoditySpec]) -> dict:
 
 def default_shock_window(commodity: Optional[CommoditySpec]) -> str:
     if commodity is not None and shocks_in_cents(commodity):
-        return DEFAULT_CENTS_SHOCK_WINDOW
+        return DEFAULT_CENTS_WINDOW_BY_CODE.get(commodity.code, DEFAULT_CENTS_SHOCK_WINDOW)
     return DEFAULT_SHOCK_WINDOW
 
 
@@ -83,7 +92,7 @@ def shock_grid(
     ref_price: Optional[float] = None,
 ) -> Tuple[float, float, List[float]]:
     """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0]).
-    For a cents-shock commodity (live cattle) `window` names a CENTS_SHOCK_WINDOWS preset and
+    For a cents-shock commodity (either cattle) `window` names a CENTS_SHOCK_WINDOWS preset and
     the grid is that cents ladder expressed as a percent of `ref_price`."""
     if commodity is not None and shocks_in_cents(commodity):
         half_c, step_c = cents_window(commodity, window)
@@ -148,6 +157,17 @@ def _fmt_dollars_signed(v: float) -> str:
     return f"{sign}${abs(v):,.0f}"
 
 
+def _money_md(v: float) -> str:
+    r"""`_fmt_dollars_signed` with the dollar sign escaped for markdown.
+
+    Streamlit renders `$...$` as inline LaTeX, so a caption quoting TWO dollar amounts
+    opens a maths span: both signs vanish and everything between them is italicised. One
+    `$` in a block is safe, which is why the axis captions get away with it -- it takes a
+    pair. Caught in a browser, not by a test: the page text reads correctly either way.
+    """
+    return _fmt_dollars_signed(v).replace("$", r"\$")
+
+
 def _fmt_unit_signed(v: float, unit: str) -> str:
     sign = "-" if v < 0 else "+"
     return f"{sign}{abs(v):,.0f} {unit}"
@@ -160,7 +180,19 @@ def render_pnl_heatmap(
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
     shock_window: str = DEFAULT_SHOCK_WINDOW,
+    centre_on_today: bool = False,
 ) -> None:
+    """`centre_on_today` re-centres the grid on the current scenario: every cell becomes the
+    CHANGE from where the book stands, so the outlined cell reads 0 and a cell answers "what
+    does this move do to me from here" directly rather than by subtracting two cells.
+
+    Two things fall out, and they are the point of offering it. The vol axis becomes legible
+    -- vol is worth a few thousand dollars where cumulative P&L is worth hundreds of
+    thousands, so it is swamped on the uncentred grid. And the gap between a tick-marked book
+    and a model-priced one cancels exactly -- it is the same constant in every cell -- so a
+    re-centred grid reads the same on either basis, and the tick/model question that the
+    uncentred grid's caption has to explain simply does not arise here.
+    """
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
     _, _, price_shocks = shock_grid(shock_window, commodity, ref_price)
     # Purely numeric x/y (0,1,2,...) with cosmetic tick labels via update_xaxes/yaxes,
@@ -175,10 +207,20 @@ def render_pnl_heatmap(
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
     x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
-    z = [
-        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price) for ps in price_shocks]
+    # Pure Black-76 throughout -- a shocked scenario cannot be marked to a frozen tick, so
+    # the grid prices every cell off the contract mark. That makes the uncentred grid's own
+    # zero cell a MODEL valuation, which can sit a long way from the blotter's tick-marked
+    # P&L column; `_caption_basis` reconciles the two in words rather than bending one onto
+    # the other. The centred grid is immune -- the difference is a constant and cancels.
+    raw = [
+        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price)
+         for ps in price_shocks]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
+    base_price_idx = price_shocks.index(0.0)
+    base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
+    centre = raw[base_vol_idx][base_price_idx]
+    z = [[v - centre for v in row] for row in raw] if centre_on_today else raw
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
     text = [[_fmt_dollars_signed(v) for v in row] for row in z]
     customdata = [[[price_hover[j], vol_labels[i]] for j in x_idx] for i in y_idx]
@@ -202,8 +244,6 @@ def render_pnl_heatmap(
     )
     # Outline the current-scenario (0 price, 0 vol) cell -- a closed line path at
     # +/-0.5 index either side of its center, tracing exactly the cell's own boundary.
-    base_price_idx = price_shocks.index(0.0)
-    base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
     px0, px1 = base_price_idx - 0.5, base_price_idx + 0.5
     py0, py1 = base_vol_idx - 0.5, base_vol_idx + 0.5
     fig.add_trace(
@@ -227,6 +267,58 @@ def render_pnl_heatmap(
         font=dict(size=11),
     )
     st.plotly_chart(fig, use_container_width=True)
+    _caption_basis(centre, positions, stress, get_contract_price, today, commodity,
+                   centre_on_today)
+
+
+
+def _caption_basis(
+    centre: float,
+    positions: List[Position],
+    stress: StressState,
+    get_contract_price: Callable[[str], float],
+    today: Optional[date],
+    commodity: CommoditySpec,
+    centred: bool = False,
+) -> None:
+    """Name the basis, and reconcile the uncentred grid against the blotter.
+
+    The grid is Black-76 throughout; the blotter at zero stress prefers an imported
+    `last_tick`. So the uncentred grid's zero cell and the P&L column above it are two
+    valuations of one book, and they can be far apart -- on a live cattle book, -$52,320
+    against -$200,500. Both are defensible, which is why the disagreement is printed rather
+    than left for someone to meet on their own.
+
+    The centred grid needs none of this: the difference is the same constant in every cell
+    and vanishes in the subtraction, so that view is identical on either basis.
+    """
+    zero = "0¢" if shocks_in_cents(commodity) else "0%"
+    if centred:
+        st.caption(
+            f"Every cell is the CHANGE from where the book stands now, so the outlined "
+            f"{zero} / 0% cell reads zero. Read a cell as what that move is worth to you from "
+            "here. This view is unaffected by whether a leg is marked to a traded price or to "
+            "the model — that difference is the same in every cell and cancels out."
+        )
+        return
+    blotter = sum(
+        eval_position(p, stress, get_contract_price, today=today, commodity=commodity).pnl
+        for p in positions
+    )
+    if round(blotter) == round(centre):
+        st.caption(
+            f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, "
+            "priced by model (Black-76) at today's futures — as is every cell, since a "
+            "shocked scenario has to be repriced."
+        )
+        return
+    st.caption(
+        f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, priced "
+        "by model (Black-76) at today's futures — as is every cell, since a shocked scenario "
+        f"has to be repriced. The blotter marks to the last imported tick instead, so its P&L "
+        f"column totals {_money_md(blotter)} against this cell's {_money_md(centre)}. The gap "
+        "is model versus last trade — the wider it is, the staler those ticks."
+    )
 
 
 def render_delta_scenario(

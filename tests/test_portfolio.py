@@ -117,7 +117,7 @@ def test_shock_windows_support_a_quarter_percent_step():
 
 
 def test_live_cattle_shocks_default_to_a_half_cent_ladder():
-    from jsa_risk.pricing.commodities import CORN, LIVE_CATTLE
+    from jsa_risk.pricing.commodities import CORN, FEEDER_CATTLE, LIVE_CATTLE
     from jsa_risk.ui.charts import (
         _shock_cents, _shock_tick, default_shock_window, shock_grid, shocks_in_cents,
     )
@@ -127,6 +127,10 @@ def test_live_cattle_shocks_default_to_a_half_cent_ladder():
     assert cents == [c * 0.5 for c in range(-10, 11)]            # -5.0, -4.5, ... +5.0 in 0.5c steps
     assert 0.0 in grid and len(grid) == 21
     assert shocks_in_cents(LIVE_CATTLE) and not shocks_in_cents(CORN)
+    # Feeder cattle is $/lb like live cattle and belongs on the same ladder; it sat on
+    # the percent one until 2026-10, which showed a feeder book an axis in percent of a
+    # price nobody quotes it in.
+    assert shocks_in_cents(FEEDER_CATTLE)
     assert _shock_tick(grid[11], ref, LIVE_CATTLE).startswith("+0.5¢")   # cents lead the label
     assert shock_grid("±10% · 2% steps", CORN, 4.6)[2][0] == -10.0       # other products keep the % windows
 
@@ -135,7 +139,7 @@ def test_the_cents_shock_window_is_selectable_and_starts_at_half_a_cent():
     """Cattle's shock ladder is a user choice like every other product's, not a fixed one:
     a leg struck 10c out of the money shows no shape at all inside the +/-5c default, which
     is what the default being a DEFAULT rather than the only option is for."""
-    from jsa_risk.pricing.commodities import CORN, LIVE_CATTLE
+    from jsa_risk.pricing.commodities import CORN, FEEDER_CATTLE, LIVE_CATTLE
     from jsa_risk.ui.charts import (
         DEFAULT_CENTS_SHOCK_WINDOW, SHOCK_WINDOWS, _shock_cents,
         default_shock_window, shock_grid, shock_windows_for,
@@ -173,3 +177,27 @@ def test_the_shock_radio_is_keyed_per_commodity():
     body = src.read_text(encoding="utf-8")
     assert re.search(r'key=f"shock_window_\{commodity\.code\}"', body), body
     assert 'key="shock_window"' not in body
+
+
+def test_feeder_cattle_opens_one_preset_wider_than_live_cattle():
+    """Same cents ladder, different default. A nickel is 2.2% of a ~$2.28 live steer and
+    1.5% of a ~$3.40 feeder, and feeders carry the higher daily vol -- so ±5¢ covers less
+    of a feeder's day than of a live steer's. Both still offer every preset."""
+    from jsa_risk.pricing.commodities import CORN, FEEDER_CATTLE, LIVE_CATTLE
+    from jsa_risk.ui.charts import (
+        CENTS_SHOCK_WINDOWS, DEFAULT_SHOCK_WINDOW, _shock_cents, default_shock_window,
+        shock_grid, shock_windows_for,
+    )
+    assert default_shock_window(LIVE_CATTLE) == "±5¢ · 0.5¢ steps"
+    assert default_shock_window(FEEDER_CATTLE) == "±10¢ · 1¢ steps"
+    assert default_shock_window(CORN) == DEFAULT_SHOCK_WINDOW, "percent commodities untouched"
+
+    # The default must be a real preset, or the radio raises on a value not in its options.
+    for c in (LIVE_CATTLE, FEEDER_CATTLE):
+        assert default_shock_window(c) in shock_windows_for(c) == CENTS_SHOCK_WINDOWS
+
+    ref = 3.40
+    _, _, grid = shock_grid(default_shock_window(FEEDER_CATTLE), FEEDER_CATTLE, ref)
+    cents = [round(_shock_cents(p, ref) * 100, 6) for p in grid]
+    assert cents == [float(c) for c in range(-10, 11)]      # -10 .. +10 in 1c steps
+    assert 0.0 in grid and len(grid) == 21                  # a zero cell to outline
