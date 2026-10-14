@@ -117,7 +117,7 @@ def test_shock_windows_support_a_quarter_percent_step():
 
 
 def test_live_cattle_shocks_default_to_a_half_cent_ladder():
-    from jsa_risk.pricing.commodities import CORN, LIVE_CATTLE
+    from jsa_risk.pricing.commodities import CORN, FEEDER_CATTLE, LIVE_CATTLE
     from jsa_risk.ui.charts import (
         _shock_cents, _shock_tick, default_shock_window, shock_grid, shocks_in_cents,
     )
@@ -127,6 +127,10 @@ def test_live_cattle_shocks_default_to_a_half_cent_ladder():
     assert cents == [c * 0.5 for c in range(-10, 11)]            # -5.0, -4.5, ... +5.0 in 0.5c steps
     assert 0.0 in grid and len(grid) == 21
     assert shocks_in_cents(LIVE_CATTLE) and not shocks_in_cents(CORN)
+    # Feeder cattle is $/lb like live cattle and belongs on the same ladder; it sat on
+    # the percent one until 2026-10, which showed a feeder book an axis in percent of a
+    # price nobody quotes it in.
+    assert shocks_in_cents(FEEDER_CATTLE)
     assert _shock_tick(grid[11], ref, LIVE_CATTLE).startswith("+0.5¢")   # cents lead the label
     assert shock_grid("±10% · 2% steps", CORN, 4.6)[2][0] == -10.0       # other products keep the % windows
 
@@ -135,7 +139,7 @@ def test_the_cents_shock_window_is_selectable_and_starts_at_half_a_cent():
     """Cattle's shock ladder is a user choice like every other product's, not a fixed one:
     a leg struck 10c out of the money shows no shape at all inside the +/-5c default, which
     is what the default being a DEFAULT rather than the only option is for."""
-    from jsa_risk.pricing.commodities import CORN, LIVE_CATTLE
+    from jsa_risk.pricing.commodities import CORN, FEEDER_CATTLE, LIVE_CATTLE
     from jsa_risk.ui.charts import (
         DEFAULT_CENTS_SHOCK_WINDOW, SHOCK_WINDOWS, _shock_cents,
         default_shock_window, shock_grid, shock_windows_for,

@@ -37,8 +37,11 @@ def _steps(half_range: float, step: float) -> List[float]:
     return [round(i * step, 6) for i in range(-n, n + 1)]
 
 
-# Live cattle is quoted and traded in fractions of a cent, so its shocks are laddered in cents
-# per pound rather than as a percent window: (half-range ¢, step ¢). The charts still carry
+# Cattle is quoted and traded in fractions of a cent, so its shocks are laddered in cents
+# per pound rather than as a percent window: (half-range ¢, step ¢). Both contracts qualify:
+# live cattle and feeder cattle are both $/lb, and a feeder book was on the percent ladder
+# until 2026-10 for no reason anyone recorded -- it reads as an oversight from when cattle
+# support landed one contract at a time, not a decision. The charts still carry
 # them internally as a percent of the book's reference price (cents / price), so the pricing
 # code is unchanged; only the grid and the labels are in cents.
 #
@@ -52,7 +55,7 @@ CENTS_SHOCK_WINDOWS = {
     "±20¢ · 2¢ steps": (20.0, 2.0),
 }
 DEFAULT_CENTS_SHOCK_WINDOW = "±5¢ · 0.5¢ steps"
-CENTS_SHOCK_COMMODITIES = {"LE"}
+CENTS_SHOCK_COMMODITIES = {"LE", "GF"}
 
 
 def shocks_in_cents(commodity: CommoditySpec) -> bool:
@@ -60,7 +63,7 @@ def shocks_in_cents(commodity: CommoditySpec) -> bool:
 
 
 def shock_windows_for(commodity: Optional[CommoditySpec]) -> dict:
-    """The window presets to offer for a commodity -- cents for live cattle, percent for the
+    """The window presets to offer for a commodity -- cents for cattle, percent for the
     rest. Keyed by the same label the user picks, so `shock_grid` can look one up directly."""
     if commodity is not None and shocks_in_cents(commodity):
         return CENTS_SHOCK_WINDOWS
@@ -83,7 +86,7 @@ def shock_grid(
     ref_price: Optional[float] = None,
 ) -> Tuple[float, float, List[float]]:
     """(half-range %, step %, shocks in %) for a named window, e.g. (10, 2, [-10.0, ..., 10.0]).
-    For a cents-shock commodity (live cattle) `window` names a CENTS_SHOCK_WINDOWS preset and
+    For a cents-shock commodity (either cattle) `window` names a CENTS_SHOCK_WINDOWS preset and
     the grid is that cents ladder expressed as a percent of `ref_price`."""
     if commodity is not None and shocks_in_cents(commodity):
         half_c, step_c = cents_window(commodity, window)
