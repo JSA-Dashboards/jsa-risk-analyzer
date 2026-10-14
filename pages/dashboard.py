@@ -114,7 +114,11 @@ payoff_shock_text = (
     f"¢ per {commodity.unit}, same move on every contract" if shocks_in_cents(commodity) else
     f"% of the book's average price, with the ≈¢ per {commodity.unit} move, applied equally to every contract"
 )
-st.caption(f"P&L vs. a {commodity.name.lower()} futures price shock ({payoff_shock_text}), current vol & time.")
+st.caption(
+    f"P&L vs. a {commodity.name.lower()} futures price shock ({payoff_shock_text}), current vol & time. "
+    "Today's curve starts from the book's current P&L, matching the blotter; the expiry curves are "
+    "intrinsic value at that date, so they do not carry today's gap between quoted and model prices."
+)
 render_payoff_chart(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("---")

@@ -95,6 +95,40 @@ def portfolio_pnl_at(
     return total
 
 
+
+def mark_offset(
+    positions: Iterable[Position],
+    get_contract_price: Callable[[str], float],
+    base_stress: StressState,
+    today: Optional[date] = None,
+    commodity: CommoditySpec = CORN,
+    ref_price: Optional[float] = None,
+) -> float:
+    """What the book is worth right now, less what the model says it is worth right now.
+
+    `portfolio_pnl_at` always reprices off Black-76 -- it has to, since a shocked scenario
+    cannot be marked to a frozen tick. The blotter does the opposite at zero stress and
+    prefers an imported `last_tick`. Left alone, that makes the scenario grid's own zero
+    cell disagree with the P&L column above it, and the two can be far apart.
+
+    Adding this offset to a scenario value re-bases it onto the blotter's mark: the tick
+    is trusted for what the position is worth NOW, the model only for how that value
+    MOVES. The grid shifts bodily; its shape, and every greek behind it, is untouched.
+
+    Returns 0.0 whenever no tick is in play -- an unmarked book, or any non-neutral
+    stress, where `eval_position` drops the tick too.
+    """
+    positions = list(positions)
+    marked = sum(
+        eval_position(p, base_stress, get_contract_price, today=today, commodity=commodity).pnl
+        for p in positions
+    )
+    modelled = portfolio_pnl_at(
+        positions, get_contract_price, base_stress, 0, 0, 0, today, commodity, ref_price,
+    )
+    return marked - modelled
+
+
 def portfolio_delta_at(
     positions: Iterable[Position],
     get_contract_price: Callable[[str], float],

@@ -11,7 +11,12 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
-from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at, portfolio_reference_price
+from jsa_risk.pricing.portfolio import (
+    mark_offset,
+    portfolio_delta_at,
+    portfolio_pnl_at,
+    portfolio_reference_price,
+)
 from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
 # Price shocks are a percent of the book's reference price (see portfolio_reference_price),
@@ -186,8 +191,14 @@ def render_pnl_heatmap(
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
     x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
+    # Re-based onto the blotter's mark (see `mark_offset`), so the outlined 0/0 cell equals
+    # the P&L column above it instead of quietly disagreeing with it. Every cell here is at
+    # days_fwd=0 -- all of them are "now" -- so one offset applies uniformly and the grid
+    # shifts bodily without its shape changing.
+    offset = mark_offset(positions, get_contract_price, stress, today, commodity, ref_price)
     z = [
-        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price) for ps in price_shocks]
+        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price) + offset
+         for ps in price_shocks]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
@@ -238,45 +249,28 @@ def render_pnl_heatmap(
         font=dict(size=11),
     )
     st.plotly_chart(fig, use_container_width=True)
-    _caption_model_basis(z[base_vol_idx][base_price_idx], positions, stress, get_contract_price, today, commodity)
+    _caption_basis(offset, commodity)
 
 
-def _caption_model_basis(
-    base_cell: float,
-    positions: List[Position],
-    stress: StressState,
-    get_contract_price: Callable[[str], float],
-    today: Optional[date],
-    commodity: CommoditySpec,
-) -> None:
-    """Say out loud that the outlined 0/0 cell is a MODEL valuation, and reconcile it
-    against the blotter when the two disagree.
 
-    Every cell here goes through `portfolio_pnl_at`, which passes an `F_override` and so
-    always reprices off Black-76 -- a shocked scenario cannot be marked to a frozen tick.
-    The blotter does the opposite at zero stress: `eval_position` prefers `last_tick`
-    where one was imported. So the cell a reader takes for "where I stand right now" can
-    differ by a lot from the P&L column directly above it, with nothing on either surface
-    admitting it. Both numbers are defensible, which is exactly why the disagreement has
-    to be printed rather than left for someone to discover against a client.
+def _caption_basis(offset: float, commodity: CommoditySpec) -> None:
+    """Name the basis. The zero cell now equals the blotter by construction, so there is no
+    disagreement left to reconcile -- but a reader still needs to know that the MOVE away
+    from it is modelled (Black-76) rather than quoted, and whether a tick is in play at all.
     """
-    st.caption(
-        f"The outlined 0{'¢' if shocks_in_cents(commodity) else '%'} / 0% cell is this book priced "
-        "by model (Black-76) at today's futures, not marked to traded prices — as is every cell, "
-        "since a shocked scenario has to be repriced."
-    )
-    blotter_pnl = sum(
-        eval_position(p, stress, get_contract_price, today=today, commodity=commodity).pnl
-        for p in positions
-    )
-    if round(blotter_pnl) == round(base_cell):
+    zero = "0¢" if shocks_in_cents(commodity) else "0%"
+    if round(offset) == 0:
+        st.caption(
+            f"The outlined {zero} / 0% cell is the book's current P&L, matching the blotter. "
+            "Every move away from it is modelled (Black-76) at today's vol and time."
+        )
         return
     st.caption(
-        f"The blotter marks to the last imported tick where it has one, so its P&L column totals "
-        f"{_money_md(blotter_pnl)} against this cell's {_money_md(base_cell)}. "
-        "The gap is model versus last trade — the wider it is, the staler those ticks."
+        f"The outlined {zero} / 0% cell is the book's current P&L, matching the blotter — "
+        f"marked to the last imported tick, which sits {_money_md(offset)} from what the model "
+        "makes this book worth. Every move away from it is modelled (Black-76), so the grid "
+        "carries that difference across; the wider it is, the staler those ticks."
     )
-
 
 def render_delta_scenario(
     positions: List[Position],
@@ -374,10 +368,20 @@ def render_payoff_chart(
             "opacity": 1.0,
             "color": EXPIRY_COLORS[i % len(EXPIRY_COLORS)],
         })
+    # The Today curve is re-based onto the blotter's mark, like the heatmap, so x=0 reads
+    # the book's actual current P&L rather than a model valuation of it.
+    #
+    # THE EXPIRY CURVES DELIBERATELY ARE NOT. `mark_offset` is the gap between what a
+    # position is quoted at and what the model makes it worth -- and at expiry there is no
+    # such gap to carry: an option is worth its intrinsic value, exactly, and the model
+    # computes that without an opinion. Shifting an expiry curve by today's offset would
+    # assert the mispricing survives expiration, which is the one date it cannot.
+    offset = mark_offset(positions, get_contract_price, stress, today, commodity, ref_price)
     for h in horizons:
-        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity, ref_price) for s in xs]
+        h_offset = offset if h["days"] == 0 else 0.0
+        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity, ref_price) + h_offset for s in xs]
 
-    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity, ref_price)
+    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity, ref_price) + offset
 
     # Fit the initial Y-range to just the default-visible window's values, not the whole
     # (much wider) computed dataset -- otherwise the visible curve gets squashed into a
