@@ -148,6 +148,17 @@ def _fmt_dollars_signed(v: float) -> str:
     return f"{sign}${abs(v):,.0f}"
 
 
+def _money_md(v: float) -> str:
+    r"""`_fmt_dollars_signed` with the dollar sign escaped for markdown.
+
+    Streamlit renders `$...$` as inline LaTeX, so a caption quoting TWO dollar amounts
+    opens a maths span: both signs vanish and everything between them is italicised. One
+    `$` in a block is safe, which is why the axis captions get away with it -- it takes a
+    pair. Caught in a browser, not by a test: the page text reads correctly either way.
+    """
+    return _fmt_dollars_signed(v).replace("$", r"\$")
+
+
 def _fmt_unit_signed(v: float, unit: str) -> str:
     sign = "-" if v < 0 else "+"
     return f"{sign}{abs(v):,.0f} {unit}"
@@ -227,6 +238,44 @@ def render_pnl_heatmap(
         font=dict(size=11),
     )
     st.plotly_chart(fig, use_container_width=True)
+    _caption_model_basis(z[base_vol_idx][base_price_idx], positions, stress, get_contract_price, today, commodity)
+
+
+def _caption_model_basis(
+    base_cell: float,
+    positions: List[Position],
+    stress: StressState,
+    get_contract_price: Callable[[str], float],
+    today: Optional[date],
+    commodity: CommoditySpec,
+) -> None:
+    """Say out loud that the outlined 0/0 cell is a MODEL valuation, and reconcile it
+    against the blotter when the two disagree.
+
+    Every cell here goes through `portfolio_pnl_at`, which passes an `F_override` and so
+    always reprices off Black-76 -- a shocked scenario cannot be marked to a frozen tick.
+    The blotter does the opposite at zero stress: `eval_position` prefers `last_tick`
+    where one was imported. So the cell a reader takes for "where I stand right now" can
+    differ by a lot from the P&L column directly above it, with nothing on either surface
+    admitting it. Both numbers are defensible, which is exactly why the disagreement has
+    to be printed rather than left for someone to discover against a client.
+    """
+    st.caption(
+        f"The outlined 0{'¢' if shocks_in_cents(commodity) else '%'} / 0% cell is this book priced "
+        "by model (Black-76) at today's futures, not marked to traded prices — as is every cell, "
+        "since a shocked scenario has to be repriced."
+    )
+    blotter_pnl = sum(
+        eval_position(p, stress, get_contract_price, today=today, commodity=commodity).pnl
+        for p in positions
+    )
+    if round(blotter_pnl) == round(base_cell):
+        return
+    st.caption(
+        f"The blotter marks to the last imported tick where it has one, so its P&L column totals "
+        f"{_money_md(blotter_pnl)} against this cell's {_money_md(base_cell)}. "
+        "The gap is model versus last trade — the wider it is, the staler those ticks."
+    )
 
 
 def render_delta_scenario(
