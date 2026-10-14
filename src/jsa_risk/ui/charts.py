@@ -11,12 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
-from jsa_risk.pricing.portfolio import (
-    mark_offset,
-    portfolio_delta_at,
-    portfolio_pnl_at,
-    portfolio_reference_price,
-)
+from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at, portfolio_reference_price
 from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
 # Price shocks are a percent of the book's reference price (see portfolio_reference_price),
@@ -176,7 +171,19 @@ def render_pnl_heatmap(
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
     shock_window: str = DEFAULT_SHOCK_WINDOW,
+    centre_on_today: bool = False,
 ) -> None:
+    """`centre_on_today` re-centres the grid on the current scenario: every cell becomes the
+    CHANGE from where the book stands, so the outlined cell reads 0 and a cell answers "what
+    does this move do to me from here" directly rather than by subtracting two cells.
+
+    Two things fall out, and they are the point of offering it. The vol axis becomes legible
+    -- vol is worth a few thousand dollars where cumulative P&L is worth hundreds of
+    thousands, so it is swamped on the uncentred grid. And the gap between a tick-marked book
+    and a model-priced one cancels exactly -- it is the same constant in every cell -- so a
+    re-centred grid reads the same on either basis, and the tick/model question that the
+    uncentred grid's caption has to explain simply does not arise here.
+    """
     ref_price = portfolio_reference_price(positions, get_contract_price, stress, today, commodity)
     _, _, price_shocks = shock_grid(shock_window, commodity, ref_price)
     # Purely numeric x/y (0,1,2,...) with cosmetic tick labels via update_xaxes/yaxes,
@@ -191,16 +198,20 @@ def render_pnl_heatmap(
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
     x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
-    # Re-based onto the blotter's mark (see `mark_offset`), so the outlined 0/0 cell equals
-    # the P&L column above it instead of quietly disagreeing with it. Every cell here is at
-    # days_fwd=0 -- all of them are "now" -- so one offset applies uniformly and the grid
-    # shifts bodily without its shape changing.
-    offset = mark_offset(positions, get_contract_price, stress, today, commodity, ref_price)
-    z = [
-        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price) + offset
+    # Pure Black-76 throughout -- a shocked scenario cannot be marked to a frozen tick, so
+    # the grid prices every cell off the contract mark. That makes the uncentred grid's own
+    # zero cell a MODEL valuation, which can sit a long way from the blotter's tick-marked
+    # P&L column; `_caption_basis` reconciles the two in words rather than bending one onto
+    # the other. The centred grid is immune -- the difference is a constant and cancels.
+    raw = [
+        [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price)
          for ps in price_shocks]
         for vs in VOL_SHOCKS_BOTTOM_UP
     ]
+    base_price_idx = price_shocks.index(0.0)
+    base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
+    centre = raw[base_vol_idx][base_price_idx]
+    z = [[v - centre for v in row] for row in raw] if centre_on_today else raw
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
     text = [[_fmt_dollars_signed(v) for v in row] for row in z]
     customdata = [[[price_hover[j], vol_labels[i]] for j in x_idx] for i in y_idx]
@@ -224,8 +235,6 @@ def render_pnl_heatmap(
     )
     # Outline the current-scenario (0 price, 0 vol) cell -- a closed line path at
     # +/-0.5 index either side of its center, tracing exactly the cell's own boundary.
-    base_price_idx = price_shocks.index(0.0)
-    base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
     px0, px1 = base_price_idx - 0.5, base_price_idx + 0.5
     py0, py1 = base_vol_idx - 0.5, base_vol_idx + 0.5
     fig.add_trace(
@@ -249,28 +258,59 @@ def render_pnl_heatmap(
         font=dict(size=11),
     )
     st.plotly_chart(fig, use_container_width=True)
-    _caption_basis(offset, commodity)
+    _caption_basis(centre, positions, stress, get_contract_price, today, commodity,
+                   centre_on_today)
 
 
 
-def _caption_basis(offset: float, commodity: CommoditySpec) -> None:
-    """Name the basis. The zero cell now equals the blotter by construction, so there is no
-    disagreement left to reconcile -- but a reader still needs to know that the MOVE away
-    from it is modelled (Black-76) rather than quoted, and whether a tick is in play at all.
+def _caption_basis(
+    centre: float,
+    positions: List[Position],
+    stress: StressState,
+    get_contract_price: Callable[[str], float],
+    today: Optional[date],
+    commodity: CommoditySpec,
+    centred: bool = False,
+) -> None:
+    """Name the basis, and reconcile the uncentred grid against the blotter.
+
+    The grid is Black-76 throughout; the blotter at zero stress prefers an imported
+    `last_tick`. So the uncentred grid's zero cell and the P&L column above it are two
+    valuations of one book, and they can be far apart -- on a live cattle book, -$52,320
+    against -$200,500. Both are defensible, which is why the disagreement is printed rather
+    than left for someone to meet on their own.
+
+    The centred grid needs none of this: the difference is the same constant in every cell
+    and vanishes in the subtraction, so that view is identical on either basis.
     """
     zero = "0¢" if shocks_in_cents(commodity) else "0%"
-    if round(offset) == 0:
+    if centred:
         st.caption(
-            f"The outlined {zero} / 0% cell is the book's current P&L, matching the blotter. "
-            "Every move away from it is modelled (Black-76) at today's vol and time."
+            f"Every cell is the CHANGE from where the book stands now, so the outlined "
+            f"{zero} / 0% cell reads zero. Read a cell as what that move is worth to you from "
+            "here. This view is unaffected by whether a leg is marked to a traded price or to "
+            "the model — that difference is the same in every cell and cancels out."
+        )
+        return
+    blotter = sum(
+        eval_position(p, stress, get_contract_price, today=today, commodity=commodity).pnl
+        for p in positions
+    )
+    if round(blotter) == round(centre):
+        st.caption(
+            f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, "
+            "priced by model (Black-76) at today's futures — as is every cell, since a "
+            "shocked scenario has to be repriced."
         )
         return
     st.caption(
-        f"The outlined {zero} / 0% cell is the book's current P&L, matching the blotter — "
-        f"marked to the last imported tick, which sits {_money_md(offset)} from what the model "
-        "makes this book worth. Every move away from it is modelled (Black-76), so the grid "
-        "carries that difference across; the wider it is, the staler those ticks."
+        f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, priced "
+        "by model (Black-76) at today's futures — as is every cell, since a shocked scenario "
+        f"has to be repriced. The blotter marks to the last imported tick instead, so its P&L "
+        f"column totals {_money_md(blotter)} against this cell's {_money_md(centre)}. The gap "
+        "is model versus last trade — the wider it is, the staler those ticks."
     )
+
 
 def render_delta_scenario(
     positions: List[Position],
@@ -368,20 +408,10 @@ def render_payoff_chart(
             "opacity": 1.0,
             "color": EXPIRY_COLORS[i % len(EXPIRY_COLORS)],
         })
-    # The Today curve is re-based onto the blotter's mark, like the heatmap, so x=0 reads
-    # the book's actual current P&L rather than a model valuation of it.
-    #
-    # THE EXPIRY CURVES DELIBERATELY ARE NOT. `mark_offset` is the gap between what a
-    # position is quoted at and what the model makes it worth -- and at expiry there is no
-    # such gap to carry: an option is worth its intrinsic value, exactly, and the model
-    # computes that without an opinion. Shifting an expiry curve by today's offset would
-    # assert the mispricing survives expiration, which is the one date it cannot.
-    offset = mark_offset(positions, get_contract_price, stress, today, commodity, ref_price)
     for h in horizons:
-        h_offset = offset if h["days"] == 0 else 0.0
-        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity, ref_price) + h_offset for s in xs]
+        h["ys"] = [portfolio_pnl_at(positions, get_contract_price, stress, s, 0, h["days"], today, commodity, ref_price) for s in xs]
 
-    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity, ref_price) + offset
+    cur_val = portfolio_pnl_at(positions, get_contract_price, stress, 0, 0, 0, today, commodity, ref_price)
 
     # Fit the initial Y-range to just the default-visible window's values, not the whole
     # (much wider) computed dataset -- otherwise the visible curve gets squashed into a

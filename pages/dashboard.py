@@ -101,9 +101,22 @@ shock_axis_text = (
     "beneath, applied equally to every contract)"
 )
 
-st.markdown("###### P&L scenario heatmap")
-st.caption(f"{shock_axis_text} vs. vol shock (y-axis, %) layered on top of the current stress scenario.")
-render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
+st.markdown("###### P&L scenario heatmap — change from here")
+st.caption(
+    f"{shock_axis_text} vs. vol shock (y-axis, %) layered on top of the current stress "
+    "scenario. Each cell is what that move is worth to you from where the book stands now."
+)
+render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity,
+                   shock_window=shock_window, centre_on_today=True)
+
+st.markdown("###### P&L scenario heatmap — total since entry")
+st.caption(
+    "The same grid, not re-centred: each cell is cumulative P&L against your entry prices, "
+    "so the outlined cell is where the book stands today. Costs no extra fetch — it is the "
+    "grid above plus that one figure."
+)
+render_pnl_heatmap(positions, stress, get_contract_price, commodity=commodity,
+                   shock_window=shock_window)
 
 st.markdown("###### Delta scenario")
 render_delta_scenario(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
@@ -114,11 +127,7 @@ payoff_shock_text = (
     f"¢ per {commodity.unit}, same move on every contract" if shocks_in_cents(commodity) else
     f"% of the book's average price, with the ≈¢ per {commodity.unit} move, applied equally to every contract"
 )
-st.caption(
-    f"P&L vs. a {commodity.name.lower()} futures price shock ({payoff_shock_text}), current vol & time. "
-    "Today's curve starts from the book's current P&L, matching the blotter; the expiry curves are "
-    "intrinsic value at that date, so they do not carry today's gap between quoted and model prices."
-)
+st.caption(f"P&L vs. a {commodity.name.lower()} futures price shock ({payoff_shock_text}), current vol & time.")
 render_payoff_chart(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)
 
 st.markdown("---")
