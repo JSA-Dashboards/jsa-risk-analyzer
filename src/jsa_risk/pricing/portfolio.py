@@ -95,7 +95,6 @@ def portfolio_pnl_at(
     return total
 
 
-
 def portfolio_delta_at(
     positions: Iterable[Position],
     get_contract_price: Callable[[str], float],
