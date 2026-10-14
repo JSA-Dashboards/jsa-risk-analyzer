@@ -177,3 +177,27 @@ def test_the_shock_radio_is_keyed_per_commodity():
     body = src.read_text(encoding="utf-8")
     assert re.search(r'key=f"shock_window_\{commodity\.code\}"', body), body
     assert 'key="shock_window"' not in body
+
+
+def test_feeder_cattle_opens_one_preset_wider_than_live_cattle():
+    """Same cents ladder, different default. A nickel is 2.2% of a ~$2.28 live steer and
+    1.5% of a ~$3.40 feeder, and feeders carry the higher daily vol -- so ±5¢ covers less
+    of a feeder's day than of a live steer's. Both still offer every preset."""
+    from jsa_risk.pricing.commodities import CORN, FEEDER_CATTLE, LIVE_CATTLE
+    from jsa_risk.ui.charts import (
+        CENTS_SHOCK_WINDOWS, DEFAULT_SHOCK_WINDOW, _shock_cents, default_shock_window,
+        shock_grid, shock_windows_for,
+    )
+    assert default_shock_window(LIVE_CATTLE) == "±5¢ · 0.5¢ steps"
+    assert default_shock_window(FEEDER_CATTLE) == "±10¢ · 1¢ steps"
+    assert default_shock_window(CORN) == DEFAULT_SHOCK_WINDOW, "percent commodities untouched"
+
+    # The default must be a real preset, or the radio raises on a value not in its options.
+    for c in (LIVE_CATTLE, FEEDER_CATTLE):
+        assert default_shock_window(c) in shock_windows_for(c) == CENTS_SHOCK_WINDOWS
+
+    ref = 3.40
+    _, _, grid = shock_grid(default_shock_window(FEEDER_CATTLE), FEEDER_CATTLE, ref)
+    cents = [round(_shock_cents(p, ref) * 100, 6) for p in grid]
+    assert cents == [float(c) for c in range(-10, 11)]      # -10 .. +10 in 1c steps
+    assert 0.0 in grid and len(grid) == 21                  # a zero cell to outline

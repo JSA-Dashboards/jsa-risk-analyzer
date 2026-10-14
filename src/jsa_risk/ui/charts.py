@@ -55,6 +55,12 @@ CENTS_SHOCK_WINDOWS = {
     "±20¢ · 2¢ steps": (20.0, 2.0),
 }
 DEFAULT_CENTS_SHOCK_WINDOW = "±5¢ · 0.5¢ steps"
+# Per-contract default, because the same cents ladder is not the same window. A nickel on a
+# ~$2.28 live steer is 2.2%; on a ~$3.40 feeder it is 1.5%, and feeders carry the higher
+# daily vol of the two (see CommoditySpec.daily_vol). So a feeder book opens one preset
+# wider -- same ladder, same labels, just a default that covers a comparable day's range.
+# Anything not named here falls back to DEFAULT_CENTS_SHOCK_WINDOW.
+DEFAULT_CENTS_WINDOW_BY_CODE = {"GF": "±10¢ · 1¢ steps"}
 CENTS_SHOCK_COMMODITIES = {"LE", "GF"}
 
 
@@ -72,7 +78,7 @@ def shock_windows_for(commodity: Optional[CommoditySpec]) -> dict:
 
 def default_shock_window(commodity: Optional[CommoditySpec]) -> str:
     if commodity is not None and shocks_in_cents(commodity):
-        return DEFAULT_CENTS_SHOCK_WINDOW
+        return DEFAULT_CENTS_WINDOW_BY_CODE.get(commodity.code, DEFAULT_CENTS_SHOCK_WINDOW)
     return DEFAULT_SHOCK_WINDOW
 
 
