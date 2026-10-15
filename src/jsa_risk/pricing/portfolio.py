@@ -12,7 +12,7 @@ contract's own price, which tilted a unit-neutral book by the price difference b
 legs.)
 """
 from datetime import date
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Tuple
 
 from .commodities import CORN, CommoditySpec
 from .stress import (
@@ -38,6 +38,22 @@ def _shocked_future(
 ) -> float:
     base_F = stressed_future(get_contract_price(effective_underlying_key(position, today, commodity)), base_stress)
     return base_F + price_shock_pct / 100 * ref_price
+
+
+def book_totals(evals: Iterable[PositionEval]) -> Tuple[float, float]:
+    """(net delta in the commodity's own unit, total P&L vs entry) over a book's evaluated
+    positions. One function because the KPI strip's "Net Position" and the blotter's delta
+    total are the SAME figure on the same page -- summed separately they would be free to
+    drift apart, and nothing would raise when they did.
+
+    EACH POSITION IS ROUNDED BEFORE SUMMING, with the same `round` the blotter applies to
+    its cells, so the totals line FOOTS the columns it sits under: a reader adding the four
+    P&L figures by hand gets the printed total to the dollar. Summing unrounded and
+    rounding once is the more obvious choice and is wrong here -- it is off by up to half a
+    unit per row, which is invisible on the delta column and is exactly the kind of
+    "it doesn't add up" a client notices on a P&L."""
+    evals = list(evals)
+    return sum(round(e.delta_d) for e in evals), sum(round(e.pnl) for e in evals)
 
 
 def portfolio_reference_price(

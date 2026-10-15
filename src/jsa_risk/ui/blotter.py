@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
+from jsa_risk.pricing.portfolio import book_totals
 from jsa_risk.pricing.stress import Position, StressState, effective_underlying_display, eval_position
 
 
@@ -87,6 +88,60 @@ def _sign_style(v) -> str:
     if pd.isna(v):
         return ""
     return f"color: {GAIN_COLOR}" if v >= 0 else f"color: {LOSS_COLOR}"
+
+
+def fmt_total_delta(v: float, unit: str) -> str:
+    """Formatted to match the Delta column the total sits under -- comma-grouped, no
+    decimals, a minus for short and NO plus for long. A total that is punctuated
+    differently from the cells above it reads as a different kind of number."""
+    return f"{'-' if v < 0 else ''}{abs(v):,.0f} {unit}"
+
+
+def fmt_total_pnl(v: float) -> str:
+    """Likewise the P&L column's own `$%,d`: a loss is -$1,234, never ($1,234) -- in USDA
+    and CFTC reports parentheses mean negative, and this audience reads those daily."""
+    return f"{'-' if v < 0 else ''}${abs(v):,.0f}"
+
+
+def _sign_style_color(v: float) -> str:
+    return GAIN_COLOR if v >= 0 else LOSS_COLOR
+
+
+def _totals_html(label: str, value_str: str, color: str) -> str:
+    return (
+        f"<span style='font-size:14px;color:#898781'>{label}</span>"
+        f"<span style='font-size:1.15rem;font-weight:600;color:{color};margin-left:8px'>{value_str}</span>"
+    )
+
+
+def render_blotter_totals(
+    positions: List[Position],
+    stress: StressState,
+    get_contract_price: Callable[[str], float],
+    commodity: CommoditySpec = CORN,
+) -> None:
+    """The footer line under the blotter: net delta and total P&L across every row.
+
+    Not a row inside the grid. `st.data_editor` maps an edit back to a position by ROW
+    INDEX (`df.iloc[row_idx]["id"]`), so a totals row would carry no id, sit in that index
+    space, and be editable and deletable like any other -- ticking its Delete box would
+    raise on the int() of a missing id.
+
+    Both figures name their own column, because a bare pair of numbers under a
+    fifteen-column table does not say which columns it is totalling."""
+    if not positions:
+        return
+    evals = [eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions]
+    net_delta, total_pnl = book_totals(evals)
+    delta_str, pnl_str = fmt_total_delta(net_delta, commodity.unit), fmt_total_pnl(total_pnl)
+    st.markdown(
+        "<div style='margin:2px 0 6px 2px'>"
+        + _totals_html(f"Total {_delta_col(commodity)}", delta_str, _sign_style_color(net_delta))
+        + "<span style='color:#898781;margin:0 14px'>|</span>"
+        + _totals_html("Total P&L", pnl_str, _sign_style_color(total_pnl))
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_blotter(
