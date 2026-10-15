@@ -19,7 +19,7 @@ def _delta_col(commodity: CommoditySpec) -> str:
 def _columns(commodity: CommoditySpec) -> List[str]:
     return [
         "id", "Contract", "Underlying", "Type", "Strike", "DTE (d)", "Qty", "IV%", "Entry",
-        "Mark", _delta_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L", "Delete",
+        "Mark", "Delta", _delta_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L", "Delete",
     ]
 
 
@@ -52,6 +52,11 @@ def build_blotter_dataframe(
             "IV%": p.iv,
             "Entry": p.entry,
             "Mark": round(r.price, 4),
+            # The option's OWN delta, sitting immediately left of the position-scaled one.
+            # Delta x Qty x contract size gives the Delta (lb) beside it, to within the
+            # four decimals printed here -- close enough to check a sign or a magnitude
+            # against, not close enough to reconcile to the pound. See the test.
+            "Delta": round(r.delta, 4),
             _delta_col(commodity): round(r.delta_d),
             "Gamma $": round(r.gamma_d),
             "Vega $": round(r.vega_d),
@@ -68,6 +73,7 @@ def _computed_column_config(commodity: CommoditySpec) -> dict:
         "Strike": st.column_config.NumberColumn(format="$%.2f"),
         "Entry": st.column_config.NumberColumn(format="$%.4f"),
         "Mark": st.column_config.NumberColumn(format="$%.4f"),
+        "Delta": st.column_config.NumberColumn(format="%.4f"),
         _delta_col(commodity): st.column_config.NumberColumn(format="%,d"),
         "Gamma $": st.column_config.NumberColumn(format="$%,d"),
         "Vega $": st.column_config.NumberColumn(format="$%,d"),
@@ -81,6 +87,11 @@ LOSS_COLOR = "#c0392b"
 
 
 def _signed_columns(commodity: CommoditySpec) -> List[str]:
+    """Columns colored green/red by sign. "Delta" -- the option's own delta -- is
+    deliberately NOT one of them. Green/red on this page means gain, or long exposure, and
+    a put's -0.29 is neither: short 160 of that put is +1,880,784 lb LONG. Coloring the
+    raw greek would put a red number and a green one on the same row describing the same
+    leg, which is the sort of contradiction a reader resolves by distrusting both."""
     return [_delta_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L"]
 
 
