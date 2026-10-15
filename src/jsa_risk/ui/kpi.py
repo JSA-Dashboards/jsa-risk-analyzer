@@ -9,6 +9,7 @@ from typing import Callable, List
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
+from jsa_risk.pricing.portfolio import book_totals
 from jsa_risk.pricing.stress import Position, StressState, eval_position
 from jsa_risk.pricing.var import value_at_risk
 
@@ -48,7 +49,9 @@ def render_kpi_strip(
     commodity: CommoditySpec = CORN,
 ) -> None:
     evals = [eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions]
-    net_delta = sum(e.delta_d for e in evals)
+    # Shared with the blotter's totals footer -- "Net Position" here and "Total Delta"
+    # there are one figure, and summing them separately would let them drift silently.
+    net_delta, _ = book_totals(evals)
     net_gamma = sum(e.gamma_d for e in evals)
     net_vega = sum(e.vega_d for e in evals)
     net_theta = sum(e.theta_d for e in evals)
@@ -88,7 +91,7 @@ def render_var_panel(
     commodity: CommoditySpec = CORN,
 ) -> None:
     evals = [eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions]
-    net_delta = sum(e.delta_d for e in evals)
+    net_delta, _ = book_totals(evals)
     var_95 = value_at_risk(net_delta, daily_vol=commodity.daily_vol)
     var_signed = -var_95
     st.markdown(

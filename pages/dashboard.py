@@ -1,7 +1,7 @@
 import streamlit as st
 
 from jsa_risk.state import get_commodity_spec, get_contract_price, init_session_state, visible_positions
-from jsa_risk.ui.blotter import render_editable_blotter
+from jsa_risk.ui.blotter import render_blotter_totals, render_editable_blotter
 from jsa_risk.ui.cash_position import render_cash_position_entry
 from jsa_risk.ui.charts import (
     default_shock_window,
@@ -76,6 +76,7 @@ st.markdown("---")
 st.markdown("###### Position blotter")
 st.caption("This book is private to your browser session — Qty and Entry are editable; check Delete to remove a row.")
 render_editable_blotter(positions, stress, get_contract_price, commodity)
+render_blotter_totals(positions, stress, get_contract_price, commodity)
 
 st.markdown("---")
 st.markdown("###### Greeks by contract")
