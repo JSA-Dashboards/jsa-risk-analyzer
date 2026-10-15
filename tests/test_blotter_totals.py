@@ -38,18 +38,26 @@ def _evals(positions):
             for p in positions]
 
 
-def test_totals_are_the_sum_of_the_columns_they_sit_under():
+def test_totals_foot_the_columns_they_sit_under_exactly():
+    """Ross's rule, and the whole point of a totals line: add the printed cells by hand and
+    you get the printed total, to the dollar. Not within a rounding step -- EXACTLY."""
     positions = a_book()
     evals = _evals(positions)
     net_delta, total_pnl = book_totals(evals)
-    assert net_delta == sum(e.delta_d for e in evals)
-    assert total_pnl == sum(e.pnl for e in evals)
-
-    # ...and land within a rounding step of adding up the blotter's own printed cells,
-    # which is what a reader checking the arithmetic by hand would do.
     df = build_blotter_dataframe(positions, StressState(), price_book, commodity=LIVE_CATTLE)
-    assert abs(df["Delta (lb)"].sum() - net_delta) <= len(positions) / 2
-    assert abs(df["P&L"].sum() - total_pnl) <= len(positions) / 2
+    assert net_delta == df["Delta (lb)"].sum()
+    assert total_pnl == df["P&L"].sum()
+
+
+def test_summing_unrounded_would_not_have_footed():
+    """The rejected alternative, kept as arithmetic rather than as a claim: summing the raw
+    values and rounding once lands off the column sum, so nobody re-derives it as 'cleaner'
+    and quietly reintroduces a total that does not add up."""
+    evals = _evals(a_book())
+    rounded = sum(round(e.pnl) for e in evals)
+    unrounded = round(sum(e.pnl for e in evals))
+    assert abs(unrounded - rounded) <= len(evals) / 2   # small...
+    assert book_totals(evals)[1] == rounded             # ...and we take the one that foots
 
 
 def test_an_empty_book_totals_to_zero_rather_than_raising():

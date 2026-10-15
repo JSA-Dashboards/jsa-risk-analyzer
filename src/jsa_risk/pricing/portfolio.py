@@ -46,12 +46,14 @@ def book_totals(evals: Iterable[PositionEval]) -> Tuple[float, float]:
     total are the SAME figure on the same page -- summed separately they would be free to
     drift apart, and nothing would raise when they did.
 
-    Summed UNROUNDED and rounded by the caller, not summed from the blotter's per-row
-    rounded cells: per-row rounding is a display convention, and taking it as the basis
-    would make the page's headline exposure depend on how many rows the book happens to
-    be split across."""
+    EACH POSITION IS ROUNDED BEFORE SUMMING, with the same `round` the blotter applies to
+    its cells, so the totals line FOOTS the columns it sits under: a reader adding the four
+    P&L figures by hand gets the printed total to the dollar. Summing unrounded and
+    rounding once is the more obvious choice and is wrong here -- it is off by up to half a
+    unit per row, which is invisible on the delta column and is exactly the kind of
+    "it doesn't add up" a client notices on a P&L."""
     evals = list(evals)
-    return sum(e.delta_d for e in evals), sum(e.pnl for e in evals)
+    return sum(round(e.delta_d) for e in evals), sum(round(e.pnl) for e in evals)
 
 
 def portfolio_reference_price(
