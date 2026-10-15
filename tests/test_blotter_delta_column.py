@@ -114,3 +114,21 @@ def test_the_row_column_is_not_called_net():
     body = (__import__("pathlib").Path(__file__).resolve().parents[1]
             / "src" / "jsa_risk" / "ui" / "blotter.py").read_text(encoding="utf-8")
     assert '_totals_html("Net Position"' in body     # ...but the footer still says it
+
+
+def test_the_word_delta_is_reserved_across_the_whole_app():
+    """One quantity, one name, everywhere it is shown: a leg or a previewed position is
+    `Position (lb)`, a group or the book is `Net Position`, and `Delta` is the option's
+    own greek and nothing else. These live in four files and drifted apart once already --
+    the blotter was renamed while the Greeks bars and the Add Position preview went on
+    calling the same figure a delta."""
+    import pathlib, re
+    root = pathlib.Path(__file__).resolve().parents[1]
+    offenders = []
+    for rel in ("src/jsa_risk/ui/charts.py", "src/jsa_risk/ui/blotter.py",
+                "src/jsa_risk/ui/kpi.py", "pages/add_position.py", "pages/dashboard.py"):
+        for i, line in enumerate((root / rel).read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("#", 1)[0]
+            if re.search(r'["\']Delta \(|f["\']Delta \{|Delta \(\{commodity', code):
+                offenders.append(f"{rel}:{i}: {line.strip()}")
+    assert not offenders, "scaled delta still labelled 'Delta (unit)':\n" + "\n".join(offenders)

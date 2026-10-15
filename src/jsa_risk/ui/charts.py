@@ -519,6 +519,25 @@ def _group_by_contract(
     return order, data
 
 
+# Width of one character of the 11px font these bars label their bars with, measured in
+# the browser rather than guessed: "+3,645,343 lb" renders 60.3px over 13 characters.
+_LABEL_CHAR_PX = 4.7
+_LABEL_MIN_PX = 10
+_LABEL_MAX_PX = 70
+
+
+def _label_margin_px(texts: List[str]) -> int:
+    """Side margin wide enough for the longest value label to draw outside its bar, in
+    pixels, capped so three charts in a row still leave a plot to draw in.
+
+    Both sides, because a negative bar labels to the LEFT -- vega and theta go negative
+    routinely, and a net short book does it on the position bar too."""
+    if not texts:
+        return _LABEL_MIN_PX
+    want = int(max(len(t) for t in texts) * _LABEL_CHAR_PX) + 8
+    return max(_LABEL_MIN_PX, min(want, _LABEL_MAX_PX))
+
+
 def _render_mini_bar(
     col,
     title: str,
@@ -540,14 +559,33 @@ def _render_mini_bar(
         fig = go.Figure(
             go.Bar(
                 x=values, y=labels, orientation="h",
-                marker_color=colors, text=text, textposition="outside",
+                marker_color=colors, text=text, textposition="auto",
+                # "auto" rather than "outside", with clipping off. An outside label is
+                # clipped at the axis when it does not fit, so a long value loses its last
+                # characters SILENTLY and still reads as a number -- "+7,391,811 lb"
+                # rendering as "+7,391,81". The full string stays in the DOM either way,
+                # which is why that survived a text-based check and showed up only in a
+                # picture. "auto" moves the label inside the bar instead.
+                #
+                # The margin below is NOT enough on its own: these sit three to a row, and
+                # the width is decided in the browser, so on a narrow window the space a
+                # label needs exceeds the whole column. Reserving pixels cannot fix a case
+                # where the pixels do not exist -- "auto" is what covers it.
+                cliponaxis=False,
                 hovertemplate=f"%{{y}}<br>{title}: %{{text}}<extra></extra>",
             )
         )
+        # Room for the label beyond the longest bar. A fixed multiplier cannot do this:
+        # the headroom is a fraction of the PLOT, the label is a fixed number of PIXELS,
+        # so whatever constant works at one pane width fails at a narrower one -- 1.3
+        # needs a plot about 400px wide to fit a 13-character value, and these sit three
+        # to a row. Hence room reserved in the MARGIN, which is in pixels like the text,
+        # and scaled to the longest label actually being drawn.
+        side = _label_margin_px(text)
         fig.update_layout(
             height=34 * len(order) + 50,
-            margin=dict(l=10, r=10, t=10, b=10),
-            xaxis=dict(range=[-max_abs * 1.3, max_abs * 1.3], zeroline=True, zerolinewidth=1, showgrid=False,
+            margin=dict(l=side, r=side, t=10, b=10),
+            xaxis=dict(range=[-max_abs * 1.12, max_abs * 1.12], zeroline=True, zerolinewidth=1, showgrid=False,
                        showticklabels=False),
             yaxis=dict(autorange="reversed"),
             plot_bgcolor="rgba(0,0,0,0)",
@@ -565,8 +603,15 @@ def render_greeks_bars(
 ) -> None:
     evals = {id(p): eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions}
     cols = st.columns(3)
-    order, delta_data = _group_by_contract(positions, evals, lambda r: r.delta_d)
-    _render_mini_bar(cols[0], f"Delta ({commodity.unit})", "per $1", order, delta_data,
+    # round() per position, matching the blotter's Position column and the group rows
+    # that foot it. Summing the raw floats instead leaves this bar a pound or two from the
+    # same figure printed a few inches above it -- which is nothing as a quantity and is
+    # still one number appearing twice with two values.
+    order, delta_data = _group_by_contract(positions, evals, lambda r: round(r.delta_d))
+    # "Net Position", not "Delta": this is the blotter's Position (lb) column summed per
+    # expiry, and the page now reserves the word Delta for the option's own greek. Net,
+    # because a group really is several legs added together -- unlike a blotter row.
+    _render_mini_bar(cols[0], f"Net Position ({commodity.unit})", "by expiry", order, delta_data,
                       lambda v: _fmt_unit_signed(v, commodity.unit))
     order, vega_data = _group_by_contract(positions, evals, lambda r: r.vega_d)
     _render_mini_bar(cols[1], "Vega $", "per vol pt", order, vega_data, _fmt_dollars_signed)
