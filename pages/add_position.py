@@ -184,7 +184,9 @@ with preview_col:
     c1, c2 = st.columns(2)
     c1.metric("Model price", f"${model_price:.3f}")
     c2.metric(entry_label, f"${entry_price:.3f}")
-    c1.metric(f"Delta ({commodity.unit})", _fmt_unit_signed(delta_d, commodity.unit))
+    # One position being previewed, so "Position", not "Net Position" -- the singular form
+    # the blotter's own per-row column uses. "Delta" is the greek, and is not this.
+    c1.metric(f"Position ({commodity.unit})", _fmt_unit_signed(delta_d, commodity.unit))
     c2.metric("Gamma $", _fmt_dollars_signed(gamma_d))
     c1.metric("Vega $/vol pt", _fmt_dollars_signed(vega_d))
     c2.metric("Theta $/day", _fmt_dollars_signed(theta_d))

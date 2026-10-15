@@ -566,7 +566,10 @@ def render_greeks_bars(
     evals = {id(p): eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions}
     cols = st.columns(3)
     order, delta_data = _group_by_contract(positions, evals, lambda r: r.delta_d)
-    _render_mini_bar(cols[0], f"Delta ({commodity.unit})", "per $1", order, delta_data,
+    # "Net Position", not "Delta": this is the blotter's Position (lb) column summed per
+    # expiry, and the page now reserves the word Delta for the option's own greek. Net,
+    # because a group really is several legs added together -- unlike a blotter row.
+    _render_mini_bar(cols[0], f"Net Position ({commodity.unit})", "by expiry", order, delta_data,
                       lambda v: _fmt_unit_signed(v, commodity.unit))
     order, vega_data = _group_by_contract(positions, evals, lambda r: r.vega_d)
     _render_mini_bar(cols[1], "Vega $", "per vol pt", order, vega_data, _fmt_dollars_signed)
