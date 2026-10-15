@@ -101,12 +101,30 @@ def test_the_totals_are_not_a_row_in_the_editor():
     assert "data_editor" not in calls and "dataframe" not in calls
 
 
-def test_both_totals_name_the_column_they_total():
-    """A bare pair of numbers under a fifteen-column table does not say what it is
-    totalling -- the standing rule that a figure has to read on its own."""
+def test_the_delta_total_is_called_net_position_not_total_delta():
+    """It is the same figure the KPI strip prints at the top of the page, from the same
+    function, and that tile calls it "Net Position". One number under two names on one
+    page is the ambiguity worth removing -- and "delta" names a RATE of change, where a
+    book's summed delta is a QUANTITY of pounds or bushels.
+
+    The per-row column keeps the name `Delta (lb)`: in a row beside Gamma $ and Vega $ it
+    reads as one of the scaled greeks, which is what it is."""
     body = (SRC / "ui" / "blotter.py").read_text(encoding="utf-8")
-    assert 'f"Total {_delta_col(commodity)}"' in body   # "Total Delta (lb)" / "(bu)"
-    assert '"Total P&L"' in body
+    kpi = (SRC / "ui" / "kpi.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(body))
+              if isinstance(n, ast.FunctionDef) and n.name == "render_blotter_totals")
+
+    # The RENDERED strings, not the file's text -- the docstring above explains the rename
+    # and says "Total Delta" in doing so, which a substring check over the source would
+    # read as the defect it is describing.
+    labels = [n.value for n in ast.walk(fn)
+              if isinstance(n, ast.Constant) and isinstance(n.value, str)
+              and n is not fn.body[0].value]
+    assert "Net Position" in labels
+    assert not any("Total Delta" in s for s in labels)
+    assert "Total P&L" in labels          # P&L is a quantity; summing it needs no rename
+    assert '"Net Position"' in kpi, "the KPI tile this borrows its wording from"
+    assert "_delta_col" in body           # ...and the COLUMN keeps the greek's name
 
 
 def test_the_totals_are_punctuated_like_the_columns_they_sit_under():

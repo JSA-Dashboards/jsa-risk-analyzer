@@ -127,8 +127,13 @@ def render_blotter_totals(
     space, and be editable and deletable like any other -- ticking its Delete box would
     raise on the int() of a missing id.
 
-    Both figures name their own column, because a bare pair of numbers under a
-    fifteen-column table does not say which columns it is totalling."""
+    THE DELTA TOTAL IS LABELLED "Net Position", NOT "Total Delta", and deliberately not
+    after the column it sums. A per-row delta belongs in that row of scaled greeks beside
+    Gamma $ and Vega $; summed over the book it stops being a greek and becomes the
+    position itself -- a quantity of pounds or bushels, where "delta" names a RATE of
+    change. The KPI strip at the top of the page already prints this exact figure, from
+    this exact function, under the name "Net Position", and one number under two names on
+    one page is the ambiguity worth removing. Ross's call, 2026-10-15."""
     if not positions:
         return
     evals = [eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions]
@@ -136,7 +141,7 @@ def render_blotter_totals(
     delta_str, pnl_str = fmt_total_delta(net_delta, commodity.unit), fmt_total_pnl(total_pnl)
     st.markdown(
         "<div style='margin:2px 0 6px 2px'>"
-        + _totals_html(f"Total {_delta_col(commodity)}", delta_str, _sign_style_color(net_delta))
+        + _totals_html("Net Position", delta_str, _sign_style_color(net_delta))
         + "<span style='color:#898781;margin:0 14px'>|</span>"
         + _totals_html("Total P&L", pnl_str, _sign_style_color(total_pnl))
         + "</div>",
