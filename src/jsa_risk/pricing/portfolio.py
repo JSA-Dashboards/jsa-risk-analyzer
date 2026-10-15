@@ -12,7 +12,7 @@ contract's own price, which tilted a unit-neutral book by the price difference b
 legs.)
 """
 from datetime import date
-from typing import Callable, Iterable, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 from .commodities import CORN, CommoditySpec
 from .stress import (
@@ -54,6 +54,31 @@ def book_totals(evals: Iterable[PositionEval]) -> Tuple[float, float]:
     "it doesn't add up" a client notices on a P&L."""
     evals = list(evals)
     return sum(round(e.delta_d) for e in evals), sum(round(e.pnl) for e in evals)
+
+
+def book_totals_by_group(
+    positions: Iterable[Position],
+    evals: Iterable[PositionEval],
+    key: Callable[[Position], str],
+) -> List[Tuple[str, float, float]]:
+    """[(group label, net delta, total P&L)], in the order each group first appears in the
+    book -- so the breakdown reads down the page in the same order as the blotter rows it
+    summarises, rather than alphabetically or by size.
+
+    Rounds per position exactly as `book_totals` does, which is what makes the group rows
+    foot to the overall total as well as to their own slice of the blotter. Summing the
+    groups' unrounded values and rounding each group once would leave the breakdown
+    disagreeing with the line beneath it by a unit or two."""
+    order: List[str] = []
+    acc: dict = {}
+    for p, e in zip(positions, evals):
+        k = key(p)
+        if k not in acc:
+            order.append(k)
+            acc[k] = [0.0, 0.0]
+        acc[k][0] += round(e.delta_d)
+        acc[k][1] += round(e.pnl)
+    return [(k, acc[k][0], acc[k][1]) for k in order]
 
 
 def portfolio_reference_price(

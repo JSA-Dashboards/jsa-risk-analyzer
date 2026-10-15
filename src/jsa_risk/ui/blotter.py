@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
-from jsa_risk.pricing.portfolio import book_totals
+from jsa_risk.pricing.portfolio import book_totals, book_totals_by_group
 from jsa_risk.pricing.stress import Position, StressState, effective_underlying_display, eval_position
 
 
@@ -137,6 +137,37 @@ def render_blotter_totals(
     if not positions:
         return
     evals = [eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions]
+
+    # Per-underlying rows FIRST, then the book line, so the eye runs parts -> whole and
+    # the last line on screen is the one the page's other surfaces quote. Grouped on the
+    # blotter's own Underlying column (`effective_underlying_display`) rather than on the
+    # option expiry: delta in pounds is exposure to a particular futures contract, so two
+    # expiries on one contract genuinely add, where two contracts' deltas do not net.
+    # ("Greeks by contract" below the blotter groups by EXPIRY DATE and will therefore
+    # split differently for a book holding two expiries against one underlying.)
+    groups = book_totals_by_group(
+        positions, evals, lambda p: effective_underlying_display(p, commodity=commodity)
+    )
+    if len(groups) > 1:   # one group is the book -- printing it twice says nothing
+        rows = "".join(
+            "<div style='margin:1px 0 1px 2px'>"
+            f"<span style='font-size:13px;color:#898781;display:inline-block;min-width:150px'>{label}</span>"
+            f"<span style='font-size:0.95rem;font-weight:600;color:{_sign_style_color(d)}'>"
+            f"{fmt_total_delta(d, commodity.unit)}</span>"
+            f"<span style='font-size:0.95rem;font-weight:600;color:{_sign_style_color(p)};margin-left:18px'>"
+            f"{fmt_total_pnl(p)}</span>"
+            "</div>"
+            for label, d, p in groups
+        )
+        st.markdown(
+            "<div style='margin:4px 0 2px 2px'>"
+            "<span style='font-size:13px;color:#898781;display:inline-block;min-width:150px'>By underlying</span>"
+            f"<span style='font-size:13px;color:#898781'>Net Position</span>"
+            "<span style='font-size:13px;color:#898781;margin-left:42px'>P&amp;L</span></div>"
+            + rows,
+            unsafe_allow_html=True,
+        )
+
     net_delta, total_pnl = book_totals(evals)
     delta_str, pnl_str = fmt_total_delta(net_delta, commodity.unit), fmt_total_pnl(total_pnl)
     st.markdown(

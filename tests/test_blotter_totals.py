@@ -6,7 +6,9 @@ from datetime import date
 
 from jsa_risk.pricing.commodities import LIVE_CATTLE
 from jsa_risk.pricing.portfolio import book_totals
-from jsa_risk.pricing.stress import Position, StressState, eval_position
+from jsa_risk.pricing.stress import (
+    Position, StressState, effective_underlying_display, eval_position,
+)
 from jsa_risk.ui.blotter import build_blotter_dataframe
 
 TODAY = date(2026, 10, 15)
@@ -145,3 +147,69 @@ def test_the_totals_are_colored_by_sign_like_the_cells_above():
     from jsa_risk.ui.blotter import GAIN_COLOR, LOSS_COLOR, _sign_style_color
     assert _sign_style_color(1) == _sign_style_color(0) == GAIN_COLOR
     assert _sign_style_color(-1) == LOSS_COLOR
+
+
+def _groups(positions):
+    from jsa_risk.pricing.portfolio import book_totals_by_group
+    return book_totals_by_group(
+        positions, _evals(positions),
+        lambda p: effective_underlying_display(p, commodity=LIVE_CATTLE),
+    )
+
+
+def test_the_breakdown_foots_the_book_line_beneath_it():
+    """Two numbers on one page that are supposed to add up must actually add up. The group
+    rows round per position exactly as `book_totals` does, so this is equality, not a
+    tolerance."""
+    positions = a_book()
+    groups = _groups(positions)
+    net_delta, total_pnl = book_totals(_evals(positions))
+    assert sum(d for _, d, _ in groups) == net_delta
+    assert sum(p for _, _, p in groups) == total_pnl
+
+
+def test_each_group_foots_its_own_slice_of_the_blotter():
+    positions = a_book()
+    df = build_blotter_dataframe(positions, StressState(), price_book, commodity=LIVE_CATTLE)
+    df["g"] = [effective_underlying_display(p, commodity=LIVE_CATTLE) for p in positions]
+    for label, delta, pnl in _groups(positions):
+        slice_ = df[df["g"] == label]
+        assert delta == slice_["Delta (lb)"].sum()
+        assert pnl == slice_["P&L"].sum()
+
+
+def test_groups_read_in_blotter_order_and_match_the_underlying_column():
+    """The breakdown is read against the rows above it, so it has to run in the same order
+    and use the same wording -- a group called something the Underlying column never says
+    sends the reader hunting for rows that aren't labelled that way."""
+    positions = a_book()
+    df = build_blotter_dataframe(positions, StressState(), price_book, commodity=LIVE_CATTLE)
+    labels = [label for label, _, _ in _groups(positions)]
+    assert labels == list(dict.fromkeys(df["Underlying"]))
+    assert labels == ["Feb '27", "Apr '27"], labels      # first appearance, not sorted
+
+
+def test_a_single_group_prints_no_breakdown():
+    """One group IS the book; printing it as a row and again as the total says nothing and
+    reads as though the two might differ."""
+    body = (SRC / "ui" / "blotter.py").read_text(encoding="utf-8")
+    assert "if len(groups) > 1:" in body
+    one = [a_book()[0]]
+    assert len(_groups(one)) == 1
+
+
+def test_delta_subtotals_are_grouped_on_the_underlying_not_the_expiry():
+    """Delta in pounds is exposure to a particular futures contract, so two expiries on ONE
+    underlying add; two underlyings' deltas do not net. `charts._contract_group_key` groups
+    the Greeks bars by expiry date instead, which is right for vega and theta and would be
+    wrong here -- this test exists so the two groupings are not 'unified' by someone who
+    notices they differ."""
+    from jsa_risk.ui.charts import _contract_group_key
+    same_underlying_two_expiries = [
+        Position(id=1, label="LEG27", type="call", qty=10, entry=0.03, strike=2.39,
+                 expiry_date=date(2027, 1, 8), iv=14.0, underlying_override="G27"),
+        Position(id=2, label="LEG27", type="call", qty=10, entry=0.03, strike=2.39,
+                 expiry_date=date(2027, 2, 5), iv=14.0, underlying_override="G27"),
+    ]
+    assert len({_contract_group_key(p) for p in same_underlying_two_expiries}) == 2
+    assert len(_groups(same_underlying_two_expiries)) == 1
