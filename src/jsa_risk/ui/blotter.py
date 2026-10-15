@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
-from jsa_risk.pricing.portfolio import book_totals
+from jsa_risk.pricing.portfolio import book_totals, book_totals_by_group
 from jsa_risk.pricing.stress import Position, StressState, effective_underlying_display, eval_position
 
 
@@ -124,6 +124,19 @@ def fmt_total_pnl(v: float) -> str:
     return f"{'-' if v < 0 else ''}${abs(v):,.0f}"
 
 
+def fmt_combined_delta(group) -> str:
+    """The structure's own delta when its legs are all one size -- "0.5696", directly
+    comparable with the per-leg figures in the Delta column above it.
+
+    Where the legs are NOT one size there is no single structure to be one unit of, so the
+    row falls back to the legs' deltas added with their sizes and says "deltas" out loud.
+    Mixed units down one column is a cost; printing a per-unit figure for a group that has
+    no unit would be a wrong number, which is worse."""
+    if group.delta_per_unit is None:
+        return f"{group.delta_contracts:+,.1f} deltas"
+    return f"{group.delta_per_unit:+.4f}"
+
+
 def _sign_style_color(v: float) -> str:
     return GAIN_COLOR if v >= 0 else LOSS_COLOR
 
@@ -158,6 +171,39 @@ def render_blotter_totals(
     if not positions:
         return
     evals = [eval_position(p, stress, get_contract_price, commodity=commodity) for p in positions]
+
+    # Per-underlying rows FIRST, then the book line, so the eye runs parts -> whole.
+    # The point of them is the COMBINED DELTA: a client reading the blotter otherwise has
+    # to flip the short put's -0.2939 to +0.2939 and add it to the call's +0.2749 to see
+    # that the Feb structure is 0.57 delta. Nothing else on the page does that -- "Greeks
+    # by contract" nets the POUNDS per expiry, never the greek.
+    #
+    # Grouped on the blotter's own Underlying column rather than on the option expiry:
+    # delta is exposure to a particular futures contract, so two expiries on one contract
+    # genuinely add, where two contracts' deltas do not net. (Those bars group by expiry,
+    # which is right for vega and theta and would be wrong here.)
+    groups = book_totals_by_group(
+        positions, evals, lambda p: effective_underlying_display(p, commodity=commodity)
+    )
+    if len(groups) > 1:   # one group is the book -- printing it twice says nothing
+        head = ("<div style='margin:4px 0 2px 2px;font-size:13px;color:#898781'>"
+                "<span style='display:inline-block;min-width:150px'>Combined by underlying</span>"
+                "<span style='display:inline-block;min-width:110px'>Delta</span>"
+                f"<span style='display:inline-block;min-width:150px'>Position ({commodity.unit})</span>"
+                "<span>P&amp;L</span></div>")
+        rows = "".join(
+            "<div style='margin:1px 0 1px 2px;font-size:0.95rem;font-weight:600'>"
+            f"<span style='font-size:13px;font-weight:400;color:#898781;display:inline-block;min-width:150px'>{g.label}</span>"
+            f"<span style='display:inline-block;min-width:110px;color:{_sign_style_color(g.delta_contracts)}'>"
+            f"{fmt_combined_delta(g)}</span>"
+            f"<span style='display:inline-block;min-width:150px;color:{_sign_style_color(g.position)}'>"
+            f"{fmt_total_delta(g.position, commodity.unit)}</span>"
+            f"<span style='color:{_sign_style_color(g.pnl)}'>{fmt_total_pnl(g.pnl)}</span>"
+            "</div>"
+            for g in groups
+        )
+        st.markdown(head + rows, unsafe_allow_html=True)
+
     net_delta, total_pnl = book_totals(evals)
     delta_str, pnl_str = fmt_total_delta(net_delta, commodity.unit), fmt_total_pnl(total_pnl)
     st.markdown(
