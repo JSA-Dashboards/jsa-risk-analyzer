@@ -102,6 +102,7 @@ def stressed_T(expiry_date: Optional[date], stress: StressState, today: Optional
 class PositionEval:
     price: float           # Mark actually used for pnl/import_gain (tick or model)
     model_price: float      # theoretical price, always model-based, for reference/hints
+    delta: float            # the option's OWN delta, per unit -- 1.0 for a future/cash
     delta_d: float
     gamma_d: float
     vega_d: float
@@ -134,6 +135,7 @@ def eval_position(
         return PositionEval(
             price=fut_mark,
             model_price=F,
+            delta=1.0,       # a future IS the underlying: one unit moves one-for-one
             delta_d=pos_mult,
             gamma_d=0.0,
             vega_d=0.0,
@@ -150,6 +152,9 @@ def eval_position(
     return PositionEval(
         price=mark,
         model_price=result.price,
+        # Carried rather than back-derived from delta_d: a row edited to qty 0 has a
+        # perfectly good delta and no pos_mult to divide by.
+        delta=result.delta,
         delta_d=result.delta * pos_mult,
         gamma_d=result.gamma * pos_mult,
         vega_d=(result.vega / 100) * pos_mult,

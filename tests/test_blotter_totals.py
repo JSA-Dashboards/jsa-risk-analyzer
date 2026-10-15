@@ -45,7 +45,7 @@ def test_totals_foot_the_columns_they_sit_under_exactly():
     evals = _evals(positions)
     net_delta, total_pnl = book_totals(evals)
     df = build_blotter_dataframe(positions, StressState(), price_book, commodity=LIVE_CATTLE)
-    assert net_delta == df["Delta (lb)"].sum()
+    assert net_delta == df["Position (lb)"].sum()
     assert total_pnl == df["P&L"].sum()
 
 
@@ -65,7 +65,7 @@ def test_an_empty_book_totals_to_zero_rather_than_raising():
 
 
 def test_the_footer_and_the_kpi_strip_cannot_drift():
-    """"Net Position" in the KPI strip and "Total Delta (lb)" under the blotter are the
+    """"Net Position" in the KPI strip and the totals line under the blotter are the
     same figure on the same page. Both must read it from `book_totals` -- a local
     `sum(e.delta_d ...)` in either file is how two defensible numbers start disagreeing."""
     for name in ("kpi.py", "blotter.py"):
@@ -107,8 +107,8 @@ def test_the_delta_total_is_called_net_position_not_total_delta():
     page is the ambiguity worth removing -- and "delta" names a RATE of change, where a
     book's summed delta is a QUANTITY of pounds or bushels.
 
-    The per-row column keeps the name `Delta (lb)`: in a row beside Gamma $ and Vega $ it
-    reads as one of the scaled greeks, which is what it is."""
+    The per-row column is `Position (lb)` -- singular, because nothing is netted within
+    one row. The footer is the net OF that column, which is what "Net" is doing there."""
     body = (SRC / "ui" / "blotter.py").read_text(encoding="utf-8")
     kpi = (SRC / "ui" / "kpi.py").read_text(encoding="utf-8")
     fn = next(n for n in ast.walk(ast.parse(body))
@@ -124,7 +124,7 @@ def test_the_delta_total_is_called_net_position_not_total_delta():
     assert not any("Total Delta" in s for s in labels)
     assert "Total P&L" in labels          # P&L is a quantity; summing it needs no rename
     assert '"Net Position"' in kpi, "the KPI tile this borrows its wording from"
-    assert "_delta_col" in body           # ...and the COLUMN keeps the greek's name
+    assert "_position_col" in body           # ...and the COLUMN keeps the greek's name
 
 
 def test_the_totals_are_punctuated_like_the_columns_they_sit_under():

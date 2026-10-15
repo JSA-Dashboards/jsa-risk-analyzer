@@ -12,14 +12,24 @@ from jsa_risk.pricing.portfolio import book_totals
 from jsa_risk.pricing.stress import Position, StressState, effective_underlying_display, eval_position
 
 
-def _delta_col(commodity: CommoditySpec) -> str:
-    return f"Delta ({commodity.unit})"
+def _position_col(commodity: CommoditySpec) -> str:
+    """The position-scaled delta column: "Position (lb)" / "Position (bu)".
+
+    Called Delta (lb) until the raw greek got a column of its own beside it, at which
+    point one page had two adjacent columns both called Delta meaning different things.
+    "Delta" now only ever means the greek; this one is what that leg is worth in pounds or
+    bushels of the underlying.
+
+    NOT "Net Position (lb)", though the footer and the KPI tile both say "Net Position":
+    nothing is netted within a single row. The footer is the net OF this column, which is
+    what the word is doing there."""
+    return f"Position ({commodity.unit})"
 
 
 def _columns(commodity: CommoditySpec) -> List[str]:
     return [
         "id", "Contract", "Underlying", "Type", "Strike", "DTE (d)", "Qty", "IV%", "Entry",
-        "Mark", _delta_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L", "Delete",
+        "Mark", "Delta", _position_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L", "Delete",
     ]
 
 
@@ -52,7 +62,12 @@ def build_blotter_dataframe(
             "IV%": p.iv,
             "Entry": p.entry,
             "Mark": round(r.price, 4),
-            _delta_col(commodity): round(r.delta_d),
+            # The option's OWN delta, sitting immediately left of the position-scaled one.
+            # Delta x Qty x contract size gives the Position (lb) beside it, to within the
+            # four decimals printed here -- close enough to check a sign or a magnitude
+            # against, not close enough to reconcile to the pound. See the test.
+            "Delta": round(r.delta, 4),
+            _position_col(commodity): round(r.delta_d),
             "Gamma $": round(r.gamma_d),
             "Vega $": round(r.vega_d),
             "Theta $/d": round(r.theta_d),
@@ -68,7 +83,8 @@ def _computed_column_config(commodity: CommoditySpec) -> dict:
         "Strike": st.column_config.NumberColumn(format="$%.2f"),
         "Entry": st.column_config.NumberColumn(format="$%.4f"),
         "Mark": st.column_config.NumberColumn(format="$%.4f"),
-        _delta_col(commodity): st.column_config.NumberColumn(format="%,d"),
+        "Delta": st.column_config.NumberColumn(format="%.4f"),
+        _position_col(commodity): st.column_config.NumberColumn(format="%,d"),
         "Gamma $": st.column_config.NumberColumn(format="$%,d"),
         "Vega $": st.column_config.NumberColumn(format="$%,d"),
         "Theta $/d": st.column_config.NumberColumn(format="$%,d"),
@@ -81,7 +97,12 @@ LOSS_COLOR = "#c0392b"
 
 
 def _signed_columns(commodity: CommoditySpec) -> List[str]:
-    return [_delta_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L"]
+    """Columns colored green/red by sign. "Delta" -- the option's own delta -- is
+    deliberately NOT one of them. Green/red on this page means gain, or long exposure, and
+    a put's -0.29 is neither: short 160 of that put is +1,880,784 lb LONG. Coloring the
+    raw greek would put a red number and a green one on the same row describing the same
+    leg, which is the sort of contradiction a reader resolves by distrusting both."""
+    return [_position_col(commodity), "Gamma $", "Vega $", "Theta $/d", "P&L"]
 
 
 def _sign_style(v) -> str:
