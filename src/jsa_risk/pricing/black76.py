@@ -25,7 +25,9 @@ class Black76Result:
 def black76(F: float, K: float, T: float, sigma_pct: float, is_call: bool) -> Black76Result:
     sigma = max(sigma_pct, 0.0001) / 100
 
-    if T <= 0:
+    # log(F/K) is undefined for a non-positive forward or strike (a zeroed contract mark or a
+    # bad strike in the book): price it at intrinsic rather than crash the whole page.
+    if T <= 0 or F <= 0 or K <= 0:
         intrinsic = max(F - K, 0.0) if is_call else max(K - F, 0.0)
         if is_call:
             delta = 1.0 if F > K else 0.0
