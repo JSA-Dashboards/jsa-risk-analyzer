@@ -119,7 +119,7 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
     _render_massive_detail()
     now = now_central()
     st.caption(
-        ("Market is closed — the button pulls each contract's settlement price."
+        ("Market is closed — the button pulls each contract's official settlement."
          if use_settlement else
          "Market is open — the button pulls the last trade, delayed ~10 minutes (not an executable quote).")
         + f" ({now:%a %H:%M} Central)"
@@ -135,8 +135,8 @@ def _render_massive_detail() -> None:
     rows = [{"Contract": k,
              "Used": v["used"],
              "Last trade (¢)": v["last_trade"],
-             "Settlement (¢)": v["settlement_price"],
-             "Prior settlement (¢)": v["previous_settlement"],
+             "Settlement used (¢)": v["previous_settlement"],
+             "Massive live price field (¢)": v["settlement_price"],
              "Session close (¢)": v["session_close"],
              "Session fields Massive sent": v["session_fields"]}
             for k, v in sorted(info["rows"].items())]

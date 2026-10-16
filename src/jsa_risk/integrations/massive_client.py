@@ -78,12 +78,18 @@ def describe_row(result: dict) -> dict:
 def pick_price(result: dict, use_settlement: bool):
     """(price in Massive's own units, basis) for one snapshot row, or (None, None).
 
-    Market open -> the last trade. Market closed -> the session's settlement price, falling
-    back to the last trade (and saying so) when no usable settlement is there."""
+    Market open -> the last trade. Market closed -> the exchange's official settle, falling
+    back to the last trade (and saying so) when no usable settlement is there.
+
+    The official settle is the snapshot's session.previous_settlement, NOT session.settlement_price:
+    observed on Massive after the close, settlement_price just repeats the last trade / session
+    close (it is the live price the day's change is measured from), while previous_settlement
+    holds the latest official settle -- today's, once the exchange has posted it (Feb live
+    cattle: 230.875 there against yesterday's 229.625, matching CME)."""
     last = (result.get("last_trade") or {}).get("price")
     if not use_settlement:
         return (last, BASIS_LAST) if last is not None else (None, None)
-    settle = (result.get("session") or {}).get("settlement_price")
+    settle = (result.get("session") or {}).get("previous_settlement")
     if settle is not None and settle > 0 and (
         last is None or abs(settle - last) <= SETTLE_SANITY_BAND * last
     ):

@@ -45,15 +45,24 @@ def test_a_utc_clock_is_read_as_central():
     assert market_is_open(CORN, utc) is False
 
 
-ROW = {"last_trade": {"price": 462.25}, "session": {"settlement_price": 461.5, "previous_settlement": 458.0}}
+# As Massive sends it after the close: settlement_price just repeats the live price; the
+# official settle is previous_settlement.
+ROW = {"last_trade": {"price": 462.25}, "session": {"settlement_price": 462.25, "previous_settlement": 461.5}}
 
 
 def test_open_market_takes_the_last_trade():
     assert pick_price(ROW, use_settlement=False) == (462.25, BASIS_LAST)
 
 
-def test_closed_market_takes_the_settlement():
+def test_closed_market_takes_the_official_settle_not_the_live_price_field():
     assert pick_price(ROW, use_settlement=True) == (461.5, BASIS_SETTLE)
+
+
+def test_the_live_cattle_case_from_the_dashboard():
+    row = {"last_trade": {"price": 231.075},
+           "session": {"settlement_price": 231.075, "previous_settlement": 230.875, "close": 231.075}}
+    assert pick_price(row, use_settlement=True) == (230.875, BASIS_SETTLE)
+    assert pick_price(row, use_settlement=False) == (231.075, BASIS_LAST)
 
 
 def test_closed_market_with_no_settlement_falls_back_and_says_so():
@@ -62,7 +71,7 @@ def test_closed_market_with_no_settlement_falls_back_and_says_so():
 
 
 def test_an_implausible_settlement_is_not_marked_into_the_book():
-    row = {"last_trade": {"price": 462.25}, "session": {"settlement_price": 4.61}}   # wrong units
+    row = {"last_trade": {"price": 462.25}, "session": {"previous_settlement": 4.61}}   # wrong units
     assert pick_price(row, use_settlement=True) == (462.25, BASIS_SETTLE_MISSING)
 
 
@@ -84,5 +93,5 @@ def test_fetch_reports_what_massive_sent_for_each_contract():
     with patch.object(massive_client, "_fetch_json", return_value=payload):
         res = massive_client.fetch_futures_prices(cfg, ["Z26"], "ZC", use_settlement=True)
     d = res.detail["Z26"]
-    assert (d["last_trade"], d["settlement_price"], d["previous_settlement"]) == (462.25, 461.5, 458.0)
+    assert (d["last_trade"], d["settlement_price"], d["previous_settlement"]) == (462.25, 462.25, 461.5)
     assert d["used"] == BASIS_SETTLE and "settlement_price" in d["session_fields"]
