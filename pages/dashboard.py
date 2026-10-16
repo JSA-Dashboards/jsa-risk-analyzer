@@ -15,6 +15,7 @@ from jsa_risk.ui.charts import (
 from jsa_risk.ui.kpi import render_kpi_strip, render_var_panel
 from jsa_risk.ui.market_strip import (
     render_iv_provenance,
+    render_mark_provenance,
     render_iv_refresh,
     render_market_strip,
     render_massive_refresh,
@@ -65,6 +66,7 @@ with price_col:
 with greeks_col:
     render_iv_refresh(positions, commodity)
 render_market_strip(positions, commodity)
+render_mark_provenance(positions, commodity)
 render_iv_provenance(positions, commodity)
 
 st.markdown("---")

@@ -2,7 +2,7 @@
 `buildMktStrip()`) plus the "Update prices from Massive" button that fills them in
 automatically when Massive is configured.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Tuple
 
 import streamlit as st
@@ -145,6 +145,109 @@ def render_iv_refresh(positions: List[Position], commodity: CommoditySpec = CORN
         "or on demand via GitHub Actions → Run workflow) — one value per underlying, "
         "shared across its options."
     )
+
+
+# The futures mark is the one input EVERY greek is priced off, and the only one with no
+# schedule behind it: it moves when somebody presses the Massive button and not otherwise.
+# So its age is stated unconditionally, not just when it crosses a threshold -- the fault
+# this exists for was silent, and a caption that only appears when something is wrong
+# cannot be checked at a glance when you are wondering whether anything IS wrong.
+#
+# Staleness is counted in SESSIONS rather than days: Friday's mark read on Monday morning
+# is ~2.8 days old by the clock and is still the most recent settle there has been. Two
+# sessions of slack also absorbs a single exchange holiday, which this does not model --
+# there is no holiday calendar here and nothing that needs one at this tolerance.
+MARK_STALE_AFTER_SESSIONS = 2
+
+
+def sessions_since(then, now) -> int:
+    """Weekdays strictly after `then`'s date, up to and including `now`'s -- i.e. how many
+    trading sessions have had the chance to move this price since it was written.
+
+    Weekdays, not days: the question is how many chances the market has had, and a
+    calendar-day count calls every Monday stale and never catches a Tuesday-to-Thursday
+    gap. Holidays are not modelled, which can overstate this by one; the threshold is set
+    wide enough to absorb that rather than carrying a calendar that would need upkeep."""
+    a, b = then.date(), now.date()
+    if b <= a:
+        return 0
+    return sum(1 for i in range(1, (b - a).days + 1)
+               if (a + timedelta(days=i)).weekday() < 5)
+
+
+def summarize_mark_provenance(rows, in_book, now,
+                              stale_after_sessions=MARK_STALE_AFTER_SESSIONS) -> dict:
+    """Pure half of render_mark_provenance, so the staleness rules are testable without
+    Streamlit. Returns {caption, warning, behind}; warning is None when marks are fresh."""
+    if not rows:
+        return {"caption": None, "warning": None, "behind": []}
+
+    dated = [r for r in rows if r.get("updated_at") is not None]
+    newest = max((r["updated_at"] for r in dated), default=None)
+    source = next((r["source"] for r in rows if r.get("source")), "")
+
+    # Label and source are ONE bit, matching the IV caption's "**Implied vol:** family" --
+    # as two they render "**Futures marks:** · massive", with a separator between a
+    # label and the thing it labels.
+    bits = [f"**Futures marks:** {source or 'unknown source'}"]
+    if newest is not None:
+        behind_n = sessions_since(newest, now)
+        age = (f"updated {newest:%Y-%m-%d %H:%M}"
+               + ("" if behind_n == 0 else f" - {behind_n} session(s) ago"))
+        bits.append(age)
+    else:
+        bits.append("never updated")
+    bits.append(f"{len(rows)} contract(s)")
+
+    warning = None
+    if newest is None:
+        warning = ("Futures marks carry no update time, so their age cannot be checked - "
+                   "every greek on this page is priced off them.")
+    else:
+        behind_n = sessions_since(newest, now)
+        if behind_n > stale_after_sessions:
+            warning = (
+                f"Futures marks are {behind_n} sessions old (newest {newest:%Y-%m-%d %H:%M}). "
+                f"Press ↻ Update prices from Massive - the blotter still moves off each "
+                f"leg's own last tick, but the greeks, the scenario heatmap and Net Position "
+                f"are all priced off this mark and will not."
+            )
+
+    # One contract lagging the rest is the case that actually misprices a position: it is
+    # a normal-looking number in the blotter with nothing to mark it out, and the headline
+    # age above stays reassuring because some OTHER contract was refreshed recently.
+    behind = []
+    if newest is not None and in_book:
+        behind = sorted(
+            r["key"] for r in rows
+            if r["key"] in in_book
+            and (r.get("updated_at") is None
+                 or sessions_since(r["updated_at"], newest) > stale_after_sessions)
+        )
+    return {"caption": " · ".join(bits), "warning": warning, "behind": behind}
+
+
+def render_mark_provenance(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
+    """One line saying where the futures marks came from and how old they are."""
+    try:
+        rows = state.get_contract_mark_provenance()
+    except Exception:
+        return                                   # never break the dashboard over a caption
+    if not rows:
+        st.caption("Futures marks: no rows - contracts fall back to the commodity default.")
+        return
+
+    in_book = {effective_underlying_key(p, commodity=commodity) for p in positions}
+    summary = summarize_mark_provenance(rows, in_book, datetime.now())
+    if summary["caption"]:
+        st.caption(summary["caption"])
+    if summary["warning"]:
+        st.warning(summary["warning"])
+    if summary["behind"]:
+        st.warning(
+            "These contracts in your book are marked older than the rest: "
+            + ", ".join(summary["behind"])
+        )
 
 
 # Vols come from a scheduled refresh, not from anything the viewer can see happening, so
