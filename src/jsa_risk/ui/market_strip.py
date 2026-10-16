@@ -67,6 +67,9 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
     config = get_massive_config()
     canon_keys = sorted({effective_underlying_key(p, commodity=commodity) for p in positions})
 
+    from jsa_risk.pricing.market_hours import market_is_open, now_central
+    use_settlement = not market_is_open(commodity)
+
     clicked = st.button("↻ Update prices from Massive", disabled=config is None)
 
     if config is None:
@@ -74,13 +77,16 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
     elif clicked:
         with st.spinner(f"Fetching {', '.join(canon_keys) or 'nothing'} from Massive…"):
             try:
-                result = massive_client.fetch_futures_prices(config, canon_keys, commodity.code)
+                result = massive_client.fetch_futures_prices(
+                    config, canon_keys, commodity.code, use_settlement=use_settlement)
             except Exception as e:
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=False, error_message=str(e))
                 st.error(f"Couldn't fetch from Massive: {e}")
             else:
+                from jsa_risk.integrations.massive_client import BASIS_SETTLE
                 for key, price in result.updated.items():
-                    state.set_contract_price(key, price, source="massive")
+                    source = "massive settlement" if result.basis.get(key) == BASIS_SETTLE else "massive"
+                    state.set_contract_price(key, price, source=source)
                     st.session_state.pop(f"mkt_price_{commodity.code}_{key}", None)  # let the card re-seed from the fresh mark
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=True, http_status=200)
                 if result.updated:
@@ -89,6 +95,15 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
                         else (f" ({result.timeframe.lower()})" if result.timeframe else "")
                     )
                     updated_str = ", ".join(f"{k} ${v:.4f}" for k, v in result.updated.items())
+                    settled = [k for k in result.updated if result.basis.get(k) == BASIS_SETTLE]
+                    if use_settlement:
+                        delay_note = " (settlement prices — market closed)"
+                        missing = [k for k in result.updated if k not in settled]
+                        if missing:
+                            delay_note = (f" (settlement where posted; {', '.join(missing)} had none yet, "
+                                          "so last trade)")
+                    else:
+                        delay_note = delay_note.replace("(", "(last trade — market open, ", 1) if delay_note else                             " (last trade — market open)"
                     # Rerun so the KPIs/Greeks/charts above this section (already rendered
                     # earlier in this same script pass, off the pre-update cached prices)
                     # pick up the fresh marks too -- stash the message since a message shown
@@ -99,7 +114,13 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
                     st.rerun()
                 else:
                     st.warning("No matching contracts returned from Massive.")
-    st.caption("Massive futures prices are delayed ~10 minutes — not a real-time or executable quote.")
+    now = now_central()
+    st.caption(
+        ("Market is closed — the button pulls each contract's settlement price."
+         if use_settlement else
+         "Market is open — the button pulls the last trade, delayed ~10 minutes (not an executable quote).")
+        + f" ({now:%a %H:%M} Central)"
+    )
 
 
 def render_iv_refresh(positions: List[Position], commodity: CommoditySpec = CORN) -> None:

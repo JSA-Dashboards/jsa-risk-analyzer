@@ -1,12 +1,10 @@
 """The dashboard carries two P&L grids off one computation: `change from here`, re-centred
 on the current scenario, and `total since entry`, which is not.
 
-Both are Black-76 throughout -- a shocked scenario cannot be marked to a frozen tick. That
-makes the UNCENTRED grid's zero cell a model valuation, which can sit a long way from the
-blotter's tick-marked P&L column (-$52,320 against -$200,500 on a live cattle book). Both
-are defensible, so the caption reconciles them rather than leaving a reader to meet the
-disagreement alone. The CENTRED grid needs none of that: the difference is a constant in
-every cell and cancels.
+Every cell is the blotter's mark plus the model's change for that shock, so the UNCENTRED
+grid's zero cell is the blotter's P&L even when positions carry imported ticks. (It used to
+be a pure model valuation, which sat a long way from the tick-marked column.) The CENTRED
+grid is unaffected: the tick/model difference is a constant in every cell and cancels.
 """
 from datetime import date
 from unittest.mock import patch
@@ -68,12 +66,17 @@ def test_re_centring_does_not_change_the_shape():
     )
 
 
-def test_the_uncentred_grid_still_disagrees_with_the_blotter_and_that_is_by_design():
-    """Reverted a change that bent the grid onto the blotter's mark; it is pure model now,
-    and the caption is what closes the gap. If this ever starts matching, the grid has
-    quietly acquired a tick and the caption below is no longer doing its job."""
+def test_the_uncentred_grid_centre_is_the_blotters_total():
+    """The 0% / 0-vol cell and the blotter's P&L are one number -- a tick-marked book
+    included. Each scenario is the blotter's mark plus the model's change, so the model/tick
+    gap that used to separate them is carried through rather than left to open up."""
     book = [a_call(last_tick=0.0260)]
-    assert grid(book, centred=False)[SHOCKS.index(0.0)] != pytest.approx(blotter_total(book))
+    assert grid(book, centred=False)[SHOCKS.index(0.0)] == pytest.approx(blotter_total(book))
+
+
+def test_the_centre_still_matches_when_the_book_has_no_ticks_or_a_mix():
+    for book in ([a_call()], [a_call(last_tick=0.0260), a_call()]):
+        assert grid(book, centred=False)[SHOCKS.index(0.0)] == pytest.approx(blotter_total(book))
 
 
 def captions_for(positions, centred):
@@ -89,22 +92,14 @@ def test_the_centred_caption_says_the_centre_is_zero_and_claims_no_basis():
     assert "blotter" not in said, "nothing to reconcile on this view"
 
 
-def test_the_uncentred_caption_names_the_model_and_quotes_both_totals():
-    book = [a_call(last_tick=0.0260)]
-    said = captions_for(book, centred=False)[0]
-    assert "Black-76" in said
-    assert charts._money_md(blotter_total(book)) in said, "the blotter's total"
-    assert charts._money_md(grid(book, False)[SHOCKS.index(0.0)]) in said, "and the cell's"
+def test_the_uncentred_caption_says_the_centre_is_the_blotter_and_names_the_model():
+    said = captions_for([a_call(last_tick=0.0260)], centred=False)[0]
+    assert "same total as the position blotter" in said
+    assert "Black-76" in said and "American" in said
 
 
-def test_no_tick_means_the_caption_drops_the_reconciliation():
-    said = captions_for([a_call()], centred=False)[0]
-    assert "Black-76" in said and "blotter" not in said
-
-
-def test_both_amounts_are_escaped_against_streamlit_latex():
-    r"""Two bare `$` in one markdown block open an inline maths span: the signs vanish and
-    the text between them is italicised. Shipped that way once; visible only in a browser,
-    since `get_page_text` reads the amounts correctly either way."""
+def test_the_caption_has_no_bare_dollar_amounts():
+    r"""Two bare `$` in one markdown block open an inline maths span; the caption quotes no
+    amounts at all now, which keeps it out of that trap."""
     said = captions_for([a_call(last_tick=0.0260)], centred=False)[0]
     assert said.count("$") == said.count(r"\$")

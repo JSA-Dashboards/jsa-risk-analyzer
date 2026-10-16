@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from jsa_risk.pricing.commodities import CORN, CommoditySpec
-from jsa_risk.pricing.portfolio import portfolio_delta_at, portfolio_pnl_at, portfolio_reference_price
+from jsa_risk.pricing.portfolio import book_totals, portfolio_delta_at, portfolio_pnl_at, portfolio_reference_price
 from jsa_risk.pricing.stress import Position, PositionEval, StressState, eval_position
 
 # Price shocks are a percent of the book's reference price (see portfolio_reference_price),
@@ -207,11 +207,10 @@ def render_pnl_heatmap(
     vol_labels = [_fmt_pct_signed(v) for v in VOL_SHOCKS_BOTTOM_UP]
     x_idx = list(range(len(price_shocks)))
     y_idx = list(range(len(VOL_SHOCKS_BOTTOM_UP)))
-    # Pure Black-76 throughout -- a shocked scenario cannot be marked to a frozen tick, so
-    # the grid prices every cell off the contract mark. That makes the uncentred grid's own
-    # zero cell a MODEL valuation, which can sit a long way from the blotter's tick-marked
-    # P&L column; `_caption_basis` reconciles the two in words rather than bending one onto
-    # the other. The centred grid is immune -- the difference is a constant and cancels.
+    # Every cell is the blotter's own mark plus the model's change for that shock (see
+    # portfolio_pnl_at), so the current-scenario cell IS the blotter's P&L. The blotter totals
+    # each position rounded to the dollar; the cell takes that exact total so the two agree
+    # to the dollar rather than to within rounding.
     raw = [
         [portfolio_pnl_at(positions, get_contract_price, stress, ps, vs, 0, today, commodity, ref_price)
          for ps in price_shocks]
@@ -219,7 +218,12 @@ def render_pnl_heatmap(
     ]
     base_price_idx = price_shocks.index(0.0)
     base_vol_idx = VOL_SHOCKS_BOTTOM_UP.index(0)
+    blotter = book_totals(
+        eval_position(p, stress, get_contract_price, today=today, commodity=commodity) for p in positions
+    )[1]
     centre = raw[base_vol_idx][base_price_idx]
+    if abs(centre - blotter) <= len(positions):      # only rounding apart; anything wider is left visible
+        raw[base_vol_idx][base_price_idx] = centre = float(blotter)
     z = [[v - centre for v in row] for row in raw] if centre_on_today else raw
     max_abs = max(1.0, max(abs(v) for row in z for v in row))
     text = [[_fmt_dollars_signed(v) for v in row] for row in z]
@@ -301,23 +305,10 @@ def _caption_basis(
             "the model — that difference is the same in every cell and cancels out."
         )
         return
-    blotter = sum(
-        eval_position(p, stress, get_contract_price, today=today, commodity=commodity).pnl
-        for p in positions
-    )
-    if round(blotter) == round(centre):
-        st.caption(
-            f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, "
-            "priced by model (Black-76 with American early exercise) at today's futures — as is every cell, since a "
-            "shocked scenario has to be repriced."
-        )
-        return
     st.caption(
-        f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, priced "
-        "by model (Black-76 with American early exercise) at today's futures — as is every cell, since a shocked scenario "
-        f"has to be repriced. The blotter marks to the last imported tick instead, so its P&L "
-        f"column totals {_money_md(blotter)} against this cell's {_money_md(centre)}. The gap "
-        "is model versus last trade — the wider it is, the staler those ticks."
+        f"The outlined {zero} / 0% cell is the book's P&L against your entry prices — the same "
+        "total as the position blotter, marks and all. Every other cell adds what the model "
+        "(Black-76 with American early exercise) says that move is worth on top of it."
     )
 
 

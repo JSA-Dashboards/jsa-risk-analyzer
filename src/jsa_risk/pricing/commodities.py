@@ -11,7 +11,8 @@ colliding in Snowflake, since those tables are keyed by canonical key alone -- s
 wherever a stored key is de-prefixed back to its bare canonical key (state.py).
 """
 from dataclasses import dataclass
-from typing import Dict, List
+from datetime import time
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,12 @@ class CommoditySpec:
     # listed contract on the 1st. Cattle trade through their own contract month, so for them
     # a contract stays current until the month is over.
     rolls_at_month_start: bool = True
+    # When the market is open, in US Central time. The day session runs to 2:00 pm -- a little
+    # past the actual close (1:20 pm grains, 1:05 pm cattle) so the exchange has posted its
+    # settlement before we start asking for it. Grains also trade an overnight session that
+    # begins the evening before (Sun-Thu) and runs to the next morning; cattle has none.
+    day_session: Tuple[time, time] = (time(8, 30), time(14, 0))
+    overnight_session: Optional[Tuple[time, time]] = (time(19, 0), time(7, 45))
 
 
 CORN = CommoditySpec(
@@ -50,12 +57,12 @@ SOYBEANS = CommoditySpec(
 LIVE_CATTLE = CommoditySpec(
     code="LE", name="Live Cattle", unit="lb", contract_size=40000,
     listed_months=["G", "J", "M", "Q", "V", "Z"], daily_vol=0.011, default_price=2.20, icon="🐄",
-    rolls_at_month_start=False,
+    rolls_at_month_start=False, overnight_session=None,
 )
 FEEDER_CATTLE = CommoditySpec(
     code="GF", name="Feeder Cattle", unit="lb", contract_size=50000,
     listed_months=["F", "H", "J", "K", "Q", "U", "V", "X"], daily_vol=0.012, default_price=2.60, icon="🐂",
-    rolls_at_month_start=False,
+    rolls_at_month_start=False, overnight_session=None,
 )
 
 COMMODITIES: Dict[str, CommoditySpec] = {

@@ -163,7 +163,13 @@ def portfolio_pnl_at(
             p, base_stress, get_contract_price, F_override=F, sigma_override=sigma, T_override=T, today=today,
             commodity=commodity, greeks=False,
         )
-        total += r.pnl
+        # Anchor to the mark the blotter shows. A position carrying a last tick is marked at
+        # that tick (not the model) when no stress is applied, so the scenario is that actual
+        # P&L plus the model's CHANGE -- otherwise the 0%/0% cell is repriced purely off the
+        # model and disagrees with the blotter total by (tick - model).
+        base = eval_position(p, base_stress, get_contract_price, today=today, commodity=commodity)
+        pnl = r.pnl + (base.price - base.model_price) * p.qty * commodity.contract_size
+        total += pnl
     return total
 
 
