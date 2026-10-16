@@ -36,6 +36,10 @@ class MassiveFetchResult:
     timeframe: Optional[str]
     # canonical_key -> which Massive field the price came from (BASIS_*)
     basis: Dict[str, str] = field(default_factory=dict)
+    # canonical_key -> what Massive actually sent for that contract (last trade, the session's
+    # settlement fields, and which session keys exist), so a "why not the settle?" question is
+    # answered from the data rather than guessed at.
+    detail: Dict[str, dict] = field(default_factory=dict)
 
 
 def canonical_key_to_massive_ticker(key: str, commodity_code: str = "ZC") -> str:
@@ -56,6 +60,19 @@ def _fetch_json(url: str, params: dict) -> dict:
     if not resp.ok or payload.get("status") == "ERROR":
         raise RuntimeError(payload.get("error") or f"HTTP {resp.status_code}")
     return payload
+
+
+def describe_row(result: dict) -> dict:
+    last = result.get("last_trade") or {}
+    session = result.get("session") or {}
+    return {
+        "last_trade": last.get("price"),
+        "last_trade_at": last.get("last_updated") or last.get("sip_timestamp"),
+        "settlement_price": session.get("settlement_price"),
+        "previous_settlement": session.get("previous_settlement"),
+        "session_close": session.get("close"),
+        "session_fields": ", ".join(sorted(session)) or "(none)",
+    }
 
 
 def pick_price(result: dict, use_settlement: bool):
@@ -101,6 +118,7 @@ def fetch_futures_prices(
     results = payload.get("results") or []
     updated: Dict[str, float] = {}
     basis: Dict[str, str] = {}
+    detail: Dict[str, dict] = {}
     timeframe = None
     for r in results:
         ticker = (r.get("details") or {}).get("ticker")
@@ -116,5 +134,6 @@ def fetch_futures_prices(
             continue
         updated[match_key] = price / 100  # cents/bu -> $/bu, same convention as everywhere else
         basis[match_key] = how
+        detail[match_key] = {**describe_row(r), "used": how}
         timeframe = timeframe or last_trade.get("timeframe")
-    return MassiveFetchResult(updated=updated, timeframe=timeframe, basis=basis)
+    return MassiveFetchResult(updated=updated, timeframe=timeframe, basis=basis, detail=detail)

@@ -76,3 +76,13 @@ def test_fetch_converts_cents_and_reports_basis_per_contract():
         res = massive_client.fetch_futures_prices(cfg, ["Z26", "H27"], "ZC", use_settlement=True)
     assert res.updated == {"Z26": pytest.approx(4.615), "H27": pytest.approx(4.70)}
     assert res.basis == {"Z26": BASIS_SETTLE, "H27": BASIS_SETTLE_MISSING}
+
+
+def test_fetch_reports_what_massive_sent_for_each_contract():
+    payload = {"status": "OK", "results": [{"details": {"ticker": "ZCZ6"}, **ROW}]}
+    cfg = MassiveConfig(api_key="k", base_url="https://example.invalid")
+    with patch.object(massive_client, "_fetch_json", return_value=payload):
+        res = massive_client.fetch_futures_prices(cfg, ["Z26"], "ZC", use_settlement=True)
+    d = res.detail["Z26"]
+    assert (d["last_trade"], d["settlement_price"], d["previous_settlement"]) == (462.25, 461.5, 458.0)
+    assert d["used"] == BASIS_SETTLE and "settlement_price" in d["session_fields"]
