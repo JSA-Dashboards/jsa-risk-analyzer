@@ -161,7 +161,7 @@ def portfolio_pnl_at(
         T = 0.0 if dte is None else max(dte - base_stress.days - days_fwd, 0) / 365
         r: PositionEval = eval_position(
             p, base_stress, get_contract_price, F_override=F, sigma_override=sigma, T_override=T, today=today,
-            commodity=commodity,
+            commodity=commodity, greeks=False,
         )
         total += r.pnl
     return total

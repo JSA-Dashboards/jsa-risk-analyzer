@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Callable, Optional
 
-from .black76 import black76
+from .black76 import american
 from .commodities import CORN, CommoditySpec
 
 
@@ -120,6 +120,7 @@ def eval_position(
     T_override: Optional[float] = None,
     today: Optional[date] = None,
     commodity: CommoditySpec = CORN,
+    greeks: bool = True,
 ) -> PositionEval:
     no_stress = stress.is_neutral
     has_tick = position.last_tick is not None
@@ -146,7 +147,7 @@ def eval_position(
 
     sigma = sigma_override if sigma_override is not None else stressed_sigma(position.iv, stress)
     T = T_override if T_override is not None else stressed_T(position.expiry_date, stress, today)
-    result = black76(F, position.strike, T, sigma, position.type == "call")
+    result = american(F, position.strike, T, sigma, position.type == "call", greeks=greeks)
     mark = position.last_tick if use_last_tick else result.price
 
     return PositionEval(

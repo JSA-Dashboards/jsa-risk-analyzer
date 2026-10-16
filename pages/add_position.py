@@ -4,7 +4,7 @@ import streamlit as st
 
 from jsa_risk import state
 from jsa_risk.data.live_iv import lookup_option_iv
-from jsa_risk.pricing.black76 import black76
+from jsa_risk.pricing.black76 import american
 from jsa_risk.pricing.stress import Position
 from jsa_risk.pricing.symbols import canonical_contract_key, contract_display_name, option_expiry_date
 from jsa_risk.state import get_contract_price
@@ -147,7 +147,7 @@ with field_col:
         model_price = F
     else:
         dte = max((draft["expiry"] - date.today()).days, 0) if draft["expiry"] else 0
-        result = black76(F, draft["strike"] or 0.0001, dte / 365, draft["iv"] or 0.01, draft["type"] == "call")
+        result = american(F, draft["strike"] or 0.0001, dte / 365, draft["iv"] or 0.01, draft["type"] == "call")
         model_price = result.price
 
     # Always editable. Starts at the model value (and follows it as strike/IV/etc. change),

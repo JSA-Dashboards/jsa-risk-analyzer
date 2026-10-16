@@ -308,13 +308,13 @@ def _caption_basis(
     if round(blotter) == round(centre):
         st.caption(
             f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, "
-            "priced by model (Black-76) at today's futures — as is every cell, since a "
+            "priced by model (Black-76 with American early exercise) at today's futures — as is every cell, since a "
             "shocked scenario has to be repriced."
         )
         return
     st.caption(
         f"The outlined {zero} / 0% cell is the book's P&L against your entry prices, priced "
-        "by model (Black-76) at today's futures — as is every cell, since a shocked scenario "
+        "by model (Black-76 with American early exercise) at today's futures — as is every cell, since a shocked scenario "
         f"has to be repriced. The blotter marks to the last imported tick instead, so its P&L "
         f"column totals {_money_md(blotter)} against this cell's {_money_md(centre)}. The gap "
         "is model versus last trade — the wider it is, the staler those ticks."
