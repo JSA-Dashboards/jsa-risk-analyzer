@@ -88,8 +88,6 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
                     source = "massive settlement" if result.basis.get(key) == BASIS_SETTLE else "massive"
                     state.set_contract_price(key, price, source=source)
                     st.session_state.pop(f"mkt_price_{commodity.code}_{key}", None)  # let the card re-seed from the fresh mark
-                st.session_state["_massive_detail"] = {
-                    "at": now_central(), "market_open": not use_settlement, "rows": result.detail}
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=True, http_status=200)
                 if result.updated:
                     delay_note = (
@@ -116,7 +114,6 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
                     st.rerun()
                 else:
                     st.warning("No matching contracts returned from Massive.")
-    _render_massive_detail()
     now = now_central()
     st.caption(
         ("Market is closed — the button pulls each contract's official settlement."
@@ -124,25 +121,6 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
          "Market is open — the button pulls the last trade, delayed ~10 minutes (not an executable quote).")
         + f" ({now:%a %H:%M} Central)"
     )
-
-
-def _render_massive_detail() -> None:
-    """The last Massive pull, contract by contract: what it sent and which price was used."""
-    info = st.session_state.get("_massive_detail")
-    if not info or not info["rows"]:
-        return
-    import pandas as pd
-    rows = [{"Contract": k,
-             "Used": v["used"],
-             "Last trade (¢)": v["last_trade"],
-             "Settlement used (¢)": v["previous_settlement"],
-             "Massive live price field (¢)": v["settlement_price"],
-             "Session close (¢)": v["session_close"],
-             "Session fields Massive sent": v["session_fields"]}
-            for k, v in sorted(info["rows"].items())]
-    with st.expander(f"What Massive returned ({info['at']:%a %H:%M} Central, "
-                     f"market {'open' if info['market_open'] else 'closed'})"):
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
 
 def render_iv_refresh(positions: List[Position], commodity: CommoditySpec = CORN) -> None:
