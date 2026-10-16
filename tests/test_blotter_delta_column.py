@@ -1,5 +1,5 @@
 """The per-leg Delta column: the option's own greek, beside the position-scaled one."""
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -8,7 +8,11 @@ from jsa_risk.pricing.stress import Position, StressState, eval_position
 from jsa_risk.ui.blotter import _columns, _position_col, _signed_columns, build_blotter_dataframe
 
 F = 2.2935
-EXPIRY = date(2027, 2, 5)
+# Expiries are RELATIVE to today, not fixed dates. `build_blotter_dataframe` has no
+# `today` parameter and always uses date.today(), so a fixed expiry makes every
+# delta in these fixtures decay as the calendar moves and any assertion about one
+# true only on the day it was written -- which is exactly how these broke overnight.
+EXPIRY = date.today() + timedelta(days=113)
 
 
 def price_book(_key):

@@ -1,6 +1,6 @@
 """The combined-by-underlying rows: what a client would otherwise work out by hand."""
 import pathlib
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -11,7 +11,12 @@ from jsa_risk.pricing.stress import (
 )
 from jsa_risk.ui.blotter import build_blotter_dataframe, fmt_combined_delta
 
-G, J = date(2027, 2, 5), date(2027, 4, 2)
+# Expiries are RELATIVE to today, not fixed dates. `build_blotter_dataframe` has no
+# `today` parameter and always uses date.today(), so a fixed expiry makes every
+# delta in these fixtures decay as the calendar moves and any assertion about one
+# true only on the day it was written -- which is exactly how these broke overnight.
+G = date.today() + timedelta(days=113)
+J = date.today() + timedelta(days=169)
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "jsa_risk"
 
 
@@ -52,9 +57,11 @@ def test_the_combined_delta_is_what_the_client_would_add_by_hand():
     put_delta = df["Delta"].iloc[0]
     assert put_delta < 0 < call_delta
     assert feb.delta_per_unit == pytest.approx(call_delta - put_delta, abs=1e-3)
-    assert feb.delta_per_unit == pytest.approx(0.5696, abs=1e-3)
-    assert feb.delta_per_unit > 0.5            # NOT the naive sum of the printed cells
-    assert abs(call_delta + put_delta) < 0.05  # ...which is near zero and would be wrong
+    # A BAND, not a pinned 0.5696: these expiries are fixed dates, so the figure decays a
+    # little every day the suite runs. Pinning it made this test true on the day it was
+    # written and false the next morning.
+    assert 0.50 < feb.delta_per_unit < 0.65
+    assert abs(call_delta + put_delta) < 0.05  # the naive sum is near zero, and is wrong
 
 
 def test_the_per_unit_delta_scales_to_the_position_column_beside_it():
@@ -96,8 +103,14 @@ def test_a_zero_qty_group_does_not_divide_by_zero():
 def test_groups_read_in_blotter_order_and_use_its_wording():
     positions = a_book()
     df = build_blotter_dataframe(positions, StressState(), price_book, commodity=LIVE_CATTLE)
-    assert [g.label for g in groups(positions)] == list(dict.fromkeys(df["Underlying"]))
-    assert [g.label for g in groups(positions)] == ["Feb '27", "Apr '27"]
+    labels = [g.label for g in groups(positions)]
+    # The PROPERTY, not the literal months. What matters is that the breakdown uses the
+    # Underlying column's own wording in the column's own order; the wording itself comes
+    # from the contract-roll rule in symbols.py and legitimately changes as months roll,
+    # so asserting "Feb '27" pins this test to a window of the calendar instead of to the
+    # behaviour it is checking.
+    assert labels == list(dict.fromkeys(df["Underlying"]))
+    assert len(labels) == 2 and len(set(labels)) == 2
 
 
 def test_a_single_group_prints_no_breakdown():

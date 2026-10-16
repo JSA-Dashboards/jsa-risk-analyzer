@@ -2,7 +2,7 @@
 sum of a figure the KPI strip already prints at the top of the same page."""
 import ast
 import pathlib
-from datetime import date
+from datetime import date, timedelta
 
 from jsa_risk.pricing.commodities import LIVE_CATTLE
 from jsa_risk.pricing.portfolio import book_totals
@@ -11,7 +11,12 @@ from jsa_risk.ui.blotter import build_blotter_dataframe
 
 TODAY = date(2026, 10, 15)
 F = 2.2935
-EXPIRY = date(2027, 2, 5)
+# Expiries are RELATIVE to today, not fixed dates. `build_blotter_dataframe` has no
+# `today` parameter and always uses date.today(), so a fixed expiry makes every
+# delta in these fixtures decay as the calendar moves and any assertion about one
+# true only on the day it was written -- which is exactly how these broke overnight.
+EXPIRY = date.today() + timedelta(days=113)
+EXPIRY_J = date.today() + timedelta(days=169)
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "jsa_risk"
 
 
@@ -27,14 +32,18 @@ def a_book():
         Position(id=2, label="LEG27", type="call", qty=160, entry=0.0313, strike=2.39,
                  expiry_date=EXPIRY, iv=14.0656),
         Position(id=3, label="LEJ27", type="put", qty=-160, entry=0.0496, strike=2.20,
-                 expiry_date=date(2027, 4, 2), iv=14.1942),
+                 expiry_date=EXPIRY_J, iv=14.1942),
         Position(id=4, label="LEJ27", type="call", qty=160, entry=0.0475, strike=2.40,
-                 expiry_date=date(2027, 4, 2), iv=14.1942),
+                 expiry_date=EXPIRY_J, iv=14.1942),
     ]
 
 
 def _evals(positions):
-    return [eval_position(p, StressState(), price_book, today=TODAY, commodity=LIVE_CATTLE)
+    # NO `today=` here, deliberately. `build_blotter_dataframe` takes no today and always
+    # uses date.today(), so pinning one side to a fixed date makes any comparison between
+    # the two true only on that date. These passed when written and failed the next
+    # morning on one day of decay, reading as a regression in code nobody had touched.
+    return [eval_position(p, StressState(), price_book, commodity=LIVE_CATTLE)
             for p in positions]
 
 
