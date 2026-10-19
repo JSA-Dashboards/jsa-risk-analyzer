@@ -3,7 +3,7 @@ password the whole app sits behind since it's public and link-accessible. Sessio
 closing the tab requires re-entering it."""
 import streamlit as st
 
-APP_PASSWORD = "jpsi"
+APP_PASSWORD = "jpsirisk"
 
 
 def require_password() -> None:
