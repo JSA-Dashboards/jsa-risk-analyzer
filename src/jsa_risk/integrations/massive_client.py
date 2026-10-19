@@ -11,6 +11,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Dict, List, Optional
 
 import requests
@@ -143,3 +144,39 @@ def fetch_futures_prices(
         detail[match_key] = {**describe_row(r), "used": how}
         timeframe = timeframe or last_trade.get("timeframe")
     return MassiveFetchResult(updated=updated, timeframe=timeframe, basis=basis, detail=detail)
+
+
+def fetch_daily_settles(
+    config: MassiveConfig, canonical_key: str, commodity_code: str = "ZC",
+    since: Optional[date] = None, before: Optional[date] = None,
+) -> Dict[date, float]:
+    """One contract's daily settlement prices, {trading date: price}, from Massive's session
+    bars (`/futures/v1/aggs/{ticker}?resolution=1session`). Each session bar carries the
+    exchange's settlement_price; the bar's close stands in for the rare bar without one.
+    Prices stay in Massive's own units (cents) -- only returns are built from them, so the
+    unit never matters. Sessions on or after `before` are left out (today's isn't final).
+
+    Raises on a failed request, so the caller's cache never stores an empty history."""
+    if not CANONICAL_KEY_RE.match(canonical_key):
+        return {}
+    ticker = canonical_key_to_massive_ticker(canonical_key, commodity_code)
+    url = f"{config.base_url}/futures/v1/aggs/{ticker}"
+    params = {"resolution": "1session", "limit": 5000, "apiKey": config.api_key}
+    if since is not None:
+        params["window_start.gte"] = since.isoformat()
+
+    prices: Dict[date, float] = {}
+    for _ in range(20):                                   # pages; one is normally plenty
+        payload = _fetch_json(url, params)
+        for bar in payload.get("results") or []:
+            day, px = bar.get("session_end_date"), bar.get("settlement_price") or bar.get("close")
+            if not day or not px:
+                continue
+            d = date.fromisoformat(day)
+            if before is None or d < before:
+                prices[d] = float(px)
+        next_url = payload.get("next_url")
+        if not next_url:
+            break
+        url, params = next_url, {"apiKey": config.api_key}
+    return prices
