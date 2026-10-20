@@ -92,6 +92,26 @@ def _computed_column_config(commodity: CommoditySpec) -> dict:
     }
 
 
+def editable_caption(stress: StressState) -> str:
+    """The "what can I change here" line above the grid.
+
+    It lives in this module rather than on the page because WHICH columns are editable
+    depends on the stress scenario, and a caption that names Mark while Mark is locked is
+    worse than none -- a reader who believes it types a price and watches it vanish.
+    """
+    if stress.is_neutral:
+        return (
+            "This book is private to your browser session — Qty, Entry and Mark are "
+            "editable; check Delete to remove a row. A Mark you type overrides the "
+            "automatic one until you reset it."
+        )
+    return (
+        "This book is private to your browser session — Qty and Entry are editable; check "
+        "Delete to remove a row. Mark is locked while a stress scenario is applied: under "
+        "a scenario every cell is repriced by model, so a typed mark could not be shown."
+    )
+
+
 GAIN_COLOR = "#3a9d5d"
 LOSS_COLOR = "#c0392b"
 
@@ -233,13 +253,33 @@ def render_editable_blotter(
     get_contract_price: Callable[[str], float],
     commodity: CommoditySpec = CORN,
 ) -> None:
-    """Qty and Entry are editable and write straight through to this session's book; row
-    deletion via the Delete checkbox. Full per-column filter/sort and richer cell editing
-    (DTE, Mark/last-tick) are a possible later pass."""
+    """Qty, Entry and Mark are editable and write straight through to this session's
+    book; row deletion via the Delete checkbox. Full per-column filter/sort and richer
+    cell editing (DTE) are a possible later pass.
+
+    MARK WRITES `last_tick`, WHICH IS THE FIELD THE AUTOMATIC MARK ALREADY PREFERS --
+    nothing about how a mark populates changes. `eval_position` has always taken
+    `last_tick` over the model at zero stress (that is how an Excel import's prices reach
+    the page); typing one by hand just puts a value in the same slot.
+
+    THE WAY BACK IS THE BUTTON, NOT AN EMPTY CELL. Clearing a NumberColumn cell does not
+    reach `edited_rows` at all -- measured in a browser, not assumed: typing 0.0450 wrote
+    through and displayed, then clearing that same cell left `last_tick` at 0.045 while
+    the grid drew the word "None" client-side. So an override with no button would be an
+    override with no way back. The None branch below is kept anyway: it costs one
+    comparison and is correct the day Streamlit does emit one.
+
+    It is LOCKED under a non-neutral scenario, and that is the whole reason this function
+    takes `stress`. `use_last_tick` in `eval_position` is `(F_override is None) and
+    no_stress and has_tick`, so under any shock the grid shows the model whatever the tick
+    says -- correct, since a shocked scenario cannot be marked to a frozen price, but it
+    means an edit made there would be stored and never appear. Disabling the column is
+    the honest version of that."""
     from jsa_risk import state
 
     df = build_blotter_dataframe(positions, stress, get_contract_price, commodity)
     editor_key = "blotter_editor"
+    editable = ("Qty", "Entry", "Delete") + (("Mark",) if stress.is_neutral else ())
 
     # Styler colors only apply to non-editable columns (Streamlit's own constraint) --
     # Qty/Entry/Delete stay editable and plain; the computed P&L-style columns are
@@ -252,7 +292,7 @@ def render_editable_blotter(
         use_container_width=True,
         key=editor_key,
         height="content",  # fit every row -- the page scrolls, not a scrollbar inside the grid
-        disabled=[c for c in df.columns if c not in ("Qty", "Entry", "Delete")],
+        disabled=[c for c in df.columns if c not in editable],
         column_config={**_computed_column_config(commodity), "id": None},
     )
 
@@ -274,6 +314,13 @@ def render_editable_blotter(
         if "Entry" in edits:
             state.update_position_field(position_id, "ENTRY", float(edits["Entry"]))
             wrote_any = True
+        if "Mark" in edits:
+            # None is a CLEARED cell, not a zero -- `float(None)` raises, and a mark of
+            # 0.0 is a real price meaning the leg is worthless. Writing None puts the row
+            # back on the model.
+            raw = edits["Mark"]
+            state.update_position_field(position_id, "LAST_TICK", None if raw is None else float(raw))
+            wrote_any = True
 
     if to_delete:
         for pid in to_delete:
@@ -281,3 +328,14 @@ def render_editable_blotter(
         st.rerun()
     elif wrote_any:
         st.rerun()
+
+    # Only offered when there is something to undo -- a permanently visible reset button
+    # on a book nobody has marked by hand invites the question "reset what?".
+    if stress.is_neutral and any(p.last_tick is not None for p in positions):
+        n = sum(1 for p in positions if p.last_tick is not None)
+        if st.button(f"Reset {n} manual mark{'s' if n != 1 else ''} to automatic",
+                     key="reset_manual_marks"):
+            for p in positions:
+                if p.last_tick is not None:
+                    state.update_position_field(p.id, "LAST_TICK", None)
+            st.rerun()
