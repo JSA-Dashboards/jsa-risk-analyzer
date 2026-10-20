@@ -117,3 +117,23 @@ def test_the_write_targets_last_tick_and_no_other_field():
     block = src[src.index('if "Mark" in edits:'):]
     assert '"LAST_TICK"' in block
     assert Path("src/jsa_risk/state.py").read_text(encoding="utf-8").count('"LAST_TICK": "last_tick"') == 1
+
+
+def test_the_editor_is_remounted_once_an_edit_is_applied():
+    """`edited_rows` lives in the widget and survives `st.rerun()`. Streamlit only drops a
+    pending edit when the data it is handed comes back EQUAL to it, so typing a mark looks
+    fine (the frame converges on it) while Reset does not: it writes None, the editor
+    re-sends the typed price, the handler writes it back, and the reset is undone in the
+    same cycle. A fresh key each time an edit is applied is what stops that."""
+    src = inspect.getsource(blotter.render_editable_blotter)
+    assert 'f"blotter_editor_{gen}"' in src, "the key must vary, or edits are re-sent for ever"
+    assert src.count('st.session_state["blotter_editor_gen"] = gen + 1') == 1, (
+        "one place bumps it -- see _applied()"
+    )
+    # Every path that changes the book must go through it, including Reset: that is the
+    # one the sticky state actually broke.
+    body = src[src.index("def _applied"):]
+    calls = body.count("_applied()") - body.count("def _applied()")
+    assert calls == 3, f"delete, field edits and reset must all go through it, got {calls}"
+    # Exactly one st.rerun() survives in that region: the one inside _applied itself.
+    assert body.count("st.rerun()") == 1, "no path may rerun without remounting first"

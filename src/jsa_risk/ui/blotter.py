@@ -278,7 +278,24 @@ def render_editable_blotter(
     from jsa_risk import state
 
     df = build_blotter_dataframe(positions, stress, get_contract_price, commodity)
-    editor_key = "blotter_editor"
+
+    # THE EDITOR MUST BE REMOUNTED ONCE AN EDIT HAS BEEN APPLIED, or it re-sends it for
+    # ever. `edited_rows` lives in the widget, not the dataframe, and survives `st.rerun()`:
+    # Streamlit only drops a pending edit when the data it is handed comes back EQUAL to
+    # it. Typing a mark therefore looks fine -- the frame converges on the typed value and
+    # the edit is absorbed -- while anything that moves the data AWAY from it does not.
+    #
+    # Reset was the case that exposed it. It writes last_tick=None, reruns, the editor
+    # re-sends {"Mark": <the typed price>}, this handler writes it straight back, and the
+    # reset is undone inside the same cycle -- so the button appeared to do nothing. The
+    # re-application also meant `wrote_any` was true on every run, so the page reran in a
+    # loop and the totals never settled.
+    #
+    # Bumping the key gives the next run a fresh widget with no pending edits. The cost is
+    # that the grid loses its cell selection after an edit, which is cheap next to an edit
+    # that cannot be undone.
+    gen = st.session_state.setdefault("blotter_editor_gen", 0)
+    editor_key = f"blotter_editor_{gen}"
     editable = ("Qty", "Entry", "Delete") + (("Mark",) if stress.is_neutral else ())
 
     # Styler colors only apply to non-editable columns (Streamlit's own constraint) --
@@ -322,12 +339,17 @@ def render_editable_blotter(
             state.update_position_field(position_id, "LAST_TICK", None if raw is None else float(raw))
             wrote_any = True
 
+    def _applied() -> None:
+        """Remount the editor, then rerun -- see the note above `editor_key`."""
+        st.session_state["blotter_editor_gen"] = gen + 1
+        st.rerun()
+
     if to_delete:
         for pid in to_delete:
             state.delete_position(pid)
-        st.rerun()
+        _applied()
     elif wrote_any:
-        st.rerun()
+        _applied()
 
     # Only offered when there is something to undo -- a permanently visible reset button
     # on a book nobody has marked by hand invites the question "reset what?".
@@ -338,4 +360,4 @@ def render_editable_blotter(
             for p in positions:
                 if p.last_tick is not None:
                     state.update_position_field(p.id, "LAST_TICK", None)
-            st.rerun()
+            _applied()
