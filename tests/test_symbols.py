@@ -215,3 +215,16 @@ class TestCattleStaysOnItsOwnMonth:
         from jsa_risk.pricing.symbols import upcoming_contract_keys
         assert upcoming_contract_keys(LIVE_CATTLE, date(2026, 10, 12), 3) == ["V26", "Z26", "G27"]
         assert upcoming_contract_keys(LIVE_CATTLE, date(2026, 11, 1), 3) == ["Z26", "G27", "J27"]
+
+
+def test_soybean_meal_decodes_and_expires_like_the_cbot_grains():
+    from jsa_risk.pricing.commodities import SOYBEAN_MEAL
+    from jsa_risk.pricing.symbols import option_expiry_date
+    # Mar is listed; Feb is a serial that prices off March; Sep is listed (unlike corn/soybeans' Aug-Sep split)
+    assert decode_contract_symbol("ZMH27", today=date(2026, 10, 20), commodity=SOYBEAN_MEAL).underlying_key == "H27"
+    d = decode_contract_symbol("ZMG27", today=date(2026, 10, 20), commodity=SOYBEAN_MEAL)
+    assert d.is_serial and d.underlying_key == "H27"
+    # Same expiry rule as soybeans: the March 2027 option expires on the same day as ZS's.
+    from jsa_risk.pricing.commodities import SOYBEANS
+    assert option_expiry_date("ZMH27", SOYBEAN_MEAL) == option_expiry_date("ZSH27", SOYBEANS)
+    assert option_expiry_date("ZMH27", SOYBEAN_MEAL) is not None

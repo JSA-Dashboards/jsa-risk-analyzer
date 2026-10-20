@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 class CommoditySpec:
     code: str                 # 2-letter CME/Globex root, e.g. "ZC"
     name: str                  # "Corn"
-    unit: str                  # "bu" or "lb" -- the pricing/quoting unit
+    unit: str                  # "bu", "lb" or "ton" -- the pricing/quoting unit
     contract_size: int         # units per contract, e.g. 5000 bu, 40000 lb
     listed_months: List[str]   # month letters with a real listed future, in calendar order
     daily_vol: float           # assumed 1-day price-move fraction, for the delta-normal VaR estimate
@@ -44,6 +44,20 @@ class CommoditySpec:
     # begins the evening before (Sun-Thu) and runs to the next morning; cattle has none.
     day_session: Tuple[time, time] = (time(8, 30), time(14, 0))
     overnight_session: Optional[Tuple[time, time]] = (time(19, 0), time(7, 45))
+    # How many of the exchange's / broker's quoted price units make one of `unit`: corn,
+    # soybeans and cattle quote in cents (100 -> dollars), soybean meal quotes in dollars per
+    # short ton already (1). Applies to Massive prices and to QST strike/entry/last-tick columns.
+    price_divisor: float = 100.0
+
+    @property
+    def quote_unit(self) -> str:
+        """The unit prices are QUOTED in, e.g. "cents/bu" or "$/ton"."""
+        return f"cents/{self.unit}" if self.price_divisor == 100 else f"$/{self.unit}"
+
+    @property
+    def move_symbol(self) -> str:
+        """Symbol for a price move in the quoting unit: "¢" for cents-quoted products, "$"."""
+        return "¢" if self.price_divisor == 100 else "$"
 
 
 CORN = CommoditySpec(
@@ -59,6 +73,11 @@ LIVE_CATTLE = CommoditySpec(
     listed_months=["G", "J", "M", "Q", "V", "Z"], daily_vol=0.011, default_price=2.20, icon="🐄",
     rolls_at_month_start=False, overnight_session=None,
 )
+SOYBEAN_MEAL = CommoditySpec(
+    code="ZM", name="Soybean Meal", unit="ton", contract_size=100,
+    listed_months=["F", "H", "K", "N", "Q", "U", "V", "Z"], daily_vol=0.015, default_price=300.0,
+    icon="🥜", price_divisor=1.0,
+)
 FEEDER_CATTLE = CommoditySpec(
     code="GF", name="Feeder Cattle", unit="lb", contract_size=50000,
     listed_months=["F", "H", "J", "K", "Q", "U", "V", "X"], daily_vol=0.012, default_price=2.60, icon="🐂",
@@ -66,7 +85,7 @@ FEEDER_CATTLE = CommoditySpec(
 )
 
 COMMODITIES: Dict[str, CommoditySpec] = {
-    c.code: c for c in [CORN, SOYBEANS, LIVE_CATTLE, FEEDER_CATTLE]
+    c.code: c for c in [CORN, SOYBEANS, SOYBEAN_MEAL, LIVE_CATTLE, FEEDER_CATTLE]
 }
 
 

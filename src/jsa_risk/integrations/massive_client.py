@@ -100,7 +100,7 @@ def pick_price(result: dict, use_settlement: bool):
 
 def fetch_futures_prices(
     config: MassiveConfig, canonical_keys: List[str], commodity_code: str = "ZC",
-    use_settlement: bool = False,
+    use_settlement: bool = False, price_divisor: float = 100.0,
 ) -> MassiveFetchResult:
     """One quiet retry after ~800ms — a gateway hiccup or rate limit can return a plain-text
     body (not JSON), almost always a transient upstream timeout, matching the original
@@ -139,7 +139,7 @@ def fetch_futures_prices(
         match_key = next((k for k in keys if k[0] == month_letter and k[-1] == year_digit), None)
         if not match_key:
             continue
-        updated[match_key] = price / 100  # cents/bu -> $/bu, same convention as everywhere else
+        updated[match_key] = price / price_divisor  # cents -> $ (or $/ton as-is), the app's unit
         basis[match_key] = how
         detail[match_key] = {**describe_row(r), "used": how}
         timeframe = timeframe or last_trade.get("timeframe")

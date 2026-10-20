@@ -100,7 +100,7 @@ shock_window = st.radio(
 shock_axis_text = (
     f"Price shock (x-axis, ¢ per {commodity.unit}, the same move on every contract, with the % of the "
     "book's average price beneath)" if shocks_in_cents(commodity) else
-    f"Price shock (x-axis, % of the book's average price, with the ≈¢ per {commodity.unit} move "
+    f"Price shock (x-axis, % of the book's average price, with the ≈{commodity.move_symbol} per {commodity.unit} move "
     "beneath, applied equally to every contract)"
 )
 
@@ -129,7 +129,7 @@ st.markdown("---")
 st.markdown("###### Portfolio payoff")
 payoff_shock_text = (
     f"¢ per {commodity.unit}, same move on every contract" if shocks_in_cents(commodity) else
-    f"% of the book's average price, with the ≈¢ per {commodity.unit} move, applied equally to every contract"
+    f"% of the book's average price, with the ≈{commodity.move_symbol} per {commodity.unit} move, applied equally to every contract"
 )
 st.caption(f"P&L vs. a {commodity.name.lower()} futures price shock ({payoff_shock_text}), current vol & time.")
 render_payoff_chart(positions, stress, get_contract_price, commodity=commodity, shock_window=shock_window)

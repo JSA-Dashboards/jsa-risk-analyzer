@@ -78,7 +78,8 @@ def render_massive_refresh(positions: List[Position], commodity: CommoditySpec =
         with st.spinner(f"Fetching {', '.join(canon_keys) or 'nothing'} from Massive…"):
             try:
                 result = massive_client.fetch_futures_prices(
-                    config, canon_keys, commodity.code, use_settlement=use_settlement)
+                    config, canon_keys, commodity.code, use_settlement=use_settlement,
+                    price_divisor=commodity.price_divisor)
             except Exception as e:
                 audit_repo.log_fetch("massive", "/futures/v1/snapshot", success=False, error_message=str(e))
                 st.error(f"Couldn't fetch from Massive: {e}")

@@ -103,3 +103,14 @@ def test_label_commodity_code_none_for_an_unrecognized_prefix():
     assert label_commodity_code("garbage") is None
     assert label_commodity_code("") is None
     assert label_commodity_code(None) is None
+
+
+def test_a_dollars_per_ton_sheet_is_not_divided_by_100():
+    from jsa_risk.importer.staging import build_staging_row
+    headers = ["Symbol", "Type", "Strike", "Expiration", "Qty", "Premium"]
+    mapping = {"label": 0, "type": 1, "strike": 2, "expiryDate": 3, "qty": 4, "entry": 5}
+    row = ["ZMZ26", "Call", "320", "9/18/2026", "10", "8.5"]
+    meal = build_staging_row(row, headers, mapping, price_divisor=1.0)
+    assert (meal.strike, meal.entry) == (320.0, 8.5)
+    corn = build_staging_row(["ZCZ26", "Call", "500", "9/18/2026", "10", "21"], headers, mapping)
+    assert (corn.strike, corn.entry) == (5.0, 0.21)

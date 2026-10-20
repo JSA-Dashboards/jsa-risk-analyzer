@@ -50,3 +50,18 @@ def test_each_commodity_has_its_own_fallback_price_in_its_own_unit():
     for spec in (SOYBEANS, LIVE_CATTLE, FEEDER_CATTLE):
         assert spec.default_price != CORN.default_price
         assert spec.default_price > 0
+
+
+def test_soybean_meal_is_quoted_in_dollars_per_ton_not_cents():
+    from jsa_risk.pricing.commodities import COMMODITIES, SOYBEAN_MEAL
+    assert get_commodity("ZM") is SOYBEAN_MEAL and COMMODITIES["ZM"] is SOYBEAN_MEAL
+    assert (SOYBEAN_MEAL.unit, SOYBEAN_MEAL.contract_size, SOYBEAN_MEAL.price_divisor) == ("ton", 100, 1.0)
+    assert SOYBEAN_MEAL.quote_unit == "$/ton" and CORN.quote_unit == "cents/bu"
+    assert SOYBEAN_MEAL.move_symbol == "$" and CORN.move_symbol == "¢"
+    assert reference_key(SOYBEAN_MEAL, "Z26") == "ZMZ26"
+    assert len(SOYBEAN_MEAL.code) == 2
+
+
+def test_soybean_meal_lists_the_soybean_complex_months_without_february_or_april():
+    from jsa_risk.pricing.commodities import SOYBEAN_MEAL
+    assert SOYBEAN_MEAL.listed_months == ["F", "H", "K", "N", "Q", "U", "V", "Z"]

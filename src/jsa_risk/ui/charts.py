@@ -112,11 +112,15 @@ LOSS = "#c0392b"
 EXPIRY_COLORS = ["#e8a33d", "#9b6bce", "#4fb8af", "#d9779a", "#c9a227", "#6a8caf"]
 
 
-def _fmt_cents(v: float) -> str:
-    """`v` is a price move in dollars per unit; shown as cents, with a decimal under 10¢
-    so small moves (e.g. 5% of a cheap contract) don't all round to the same label."""
-    cents = abs(v) * 100
+def _fmt_cents(v: float, commodity: Optional[CommoditySpec] = None) -> str:
+    """`v` is a price move in the commodity's own unit ($ per bu/lb/ton); shown as cents for a
+    cents-quoted product, with a decimal under 10¢ so small moves (e.g. 5% of a cheap
+    contract) don't all round to the same label. A dollars-quoted product (soybean meal) shows
+    the move in dollars per unit instead."""
     sign = "-" if v < 0 else ("+" if v > 0 else "")
+    if commodity is not None and commodity.price_divisor != 100:
+        return f"{sign}${abs(v):.2f}"
+    cents = abs(v) * 100
     body = f"{cents:.1f}" if 0 < cents < 10 else f"{cents:.0f}"
     return f"{sign}{body}¢"
 
@@ -133,14 +137,14 @@ def _shock_cents(pct: float, ref_price: float) -> float:
 def _shock_tick(pct: float, ref_price: float, commodity: Optional[CommoditySpec] = None) -> str:
     """Two-line axis tick: % over its cents equivalent -- or, for a cents-shock commodity,
     the cents move over the % it works out to."""
-    cents = _fmt_cents(_shock_cents(pct, ref_price))
+    cents = _fmt_cents(_shock_cents(pct, ref_price), commodity)
     if commodity is not None and shocks_in_cents(commodity):
         return f"{cents}<br>{_fmt_pct_signed(round(pct, 2))}"
     return f"{_fmt_pct_signed(pct)}<br>{cents}"
 
 
 def _shock_hover(pct: float, ref_price: float, commodity: Optional[CommoditySpec] = None) -> str:
-    cents = _fmt_cents(_shock_cents(pct, ref_price))
+    cents = _fmt_cents(_shock_cents(pct, ref_price), commodity)
     if commodity is not None and shocks_in_cents(commodity):
         return f"{cents} ({_fmt_pct_signed(round(pct, 2))})"
     return f"{_fmt_pct_signed(pct)} ({cents})"
@@ -149,7 +153,7 @@ def _shock_hover(pct: float, ref_price: float, commodity: Optional[CommoditySpec
 def _shock_axis_title(ref_price: float, commodity: CommoditySpec) -> str:
     if shocks_in_cents(commodity):
         return f"Price shock (¢/{commodity.unit}, same move on every contract · % of ${ref_price:.2f} avg beneath) →"
-    return f"Price shock (% of avg price · ≈¢/{commodity.unit} at ${ref_price:.2f}, all contracts) →"
+    return f"Price shock (% of avg price · ≈{commodity.move_symbol}/{commodity.unit} at ${ref_price:.2f}, all contracts) →"
 
 
 def _fmt_dollars_signed(v: float) -> str:

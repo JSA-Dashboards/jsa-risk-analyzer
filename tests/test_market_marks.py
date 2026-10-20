@@ -95,3 +95,14 @@ def test_fetch_reports_what_massive_sent_for_each_contract():
     d = res.detail["Z26"]
     assert (d["last_trade"], d["settlement_price"], d["previous_settlement"]) == (462.25, 462.25, 461.5)
     assert d["used"] == BASIS_SETTLE and "settlement_price" in d["session_fields"]
+
+
+def test_massive_meal_prices_are_dollars_per_ton_and_stay_that_way():
+    payload = {"status": "OK", "results": [
+        {"details": {"ticker": "ZMZ6"}, "last_trade": {"price": 312.4}, "session": {"previous_settlement": 311.0}}]}
+    cfg = MassiveConfig(api_key="k", base_url="https://example.invalid")
+    with patch.object(massive_client, "_fetch_json", return_value=payload):
+        res = massive_client.fetch_futures_prices(cfg, ["Z26"], "ZM", price_divisor=1.0)
+        closed = massive_client.fetch_futures_prices(cfg, ["Z26"], "ZM", use_settlement=True, price_divisor=1.0)
+    assert res.updated == {"Z26": pytest.approx(312.4)}
+    assert closed.updated == {"Z26": pytest.approx(311.0)}
