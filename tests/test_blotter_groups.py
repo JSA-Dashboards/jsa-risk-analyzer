@@ -153,3 +153,76 @@ def test_the_bar_labels_are_not_clipped_by_the_axis():
     assert _label_margin_px([]) == 10
     # capped, or three charts in a row leave no plot between their own margins
     assert _label_margin_px(["+1,234,567,890,123,456 lb"]) <= 70
+
+
+def _one_underlying():
+    """Ross's 2026-10-28 book: one strangle, both legs on Feb '27."""
+    return [
+        Position(id=1, label="LEG27", type="call", qty=100, entry=0.0275, strike=2.44,
+                 expiry_date=G, iv=14.1226, last_tick=0.0275),
+        Position(id=2, label="LEG27", type="put", qty=-100, entry=0.0340, strike=2.24,
+                 expiry_date=G, iv=15.0600, last_tick=0.0340),
+    ]
+
+
+def test_a_single_underlying_book_still_reports_its_combined_delta():
+    """The breakdown rows are suppressed for one group because they would repeat the
+    book line's Position and P&L -- but the book line has never carried a DELTA, so
+    suppressing them left the combined figure nowhere on the page for a book held in
+    one contract. Which is what building a single strangle looks like."""
+    book = _one_underlying()
+    assert len(groups(book)) == 1
+    g = groups(book)[0]
+    assert g.delta_per_unit is not None
+    assert 0.4 < g.delta_per_unit < 0.7          # a long call against a short put
+    body = (SRC / "ui" / "blotter.py").read_text(encoding="utf-8")
+    assert 'if len(groups) == 1:' in body
+    assert '_totals_html("Combined Delta"' in body
+
+
+def test_the_book_line_delta_is_the_group_delta_not_a_second_calculation():
+    """One figure, one function. The book line and the breakdown must read the same
+    `fmt_combined_delta` off the same GroupTotals, or a one-underlying book and a
+    two-underlying one would quote this structure differently."""
+    import ast
+    body = (SRC / "ui" / "blotter.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(body))
+              if isinstance(n, ast.FunctionDef) and n.name == "render_blotter_totals")
+    calls = [n for n in ast.walk(fn)
+             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "fmt_combined_delta"]
+    assert len(calls) == 2, "the rows and the book line, and nothing else"
+    # Both arguments come out of `groups` -- directly in the row comprehension, and via
+    # `g = groups[0]` on the book line. What matters is that neither branch reaches past
+    # GroupTotals and does its own delta arithmetic, so no attribute of it is formatted
+    # anywhere in this function.
+    src = ast.unparse(fn)
+    assert "g = groups[0]" in src
+    assert "delta_per_unit" not in src and "delta_contracts" not in src.replace(
+        "_sign_style_color(g.delta_contracts)", "")
+
+
+def test_several_underlyings_keep_the_delta_on_the_rows_and_off_the_book_line():
+    """Deltas on different futures contracts do not add, so there is no book-level
+    combined delta to print once more than one underlying is held -- the per-group
+    rows are the only honest place for it."""
+    book = a_book()                      # Feb '27 and Apr '27
+    assert len(groups(book)) == 2
+    body = (SRC / "ui" / "blotter.py").read_text(encoding="utf-8")
+    i_rows = body.index("if len(groups) > 1:")
+    i_line = body.index("if len(groups) == 1:")
+    assert i_rows < i_line               # rows first, then the book line
+    # the two branches are exclusive, so a two-group book cannot reach the book-line delta
+    assert "elif" not in body[i_rows:i_line]
+
+
+def test_the_book_line_delta_degrades_with_mixed_lot_sizes():
+    """Same rule as the rows: no single structure to be one unit of, so it reports the
+    legs' deltas added with their sizes and says "deltas" out loud rather than printing
+    a per-unit figure for something that has no unit."""
+    book = _one_underlying()
+    book[1] = Position(id=2, label="LEG27", type="put", qty=-40, entry=0.0340, strike=2.24,
+                       expiry_date=G, iv=15.0600, last_tick=0.0340)
+    g = groups(book)[0]
+    assert len(groups(book)) == 1
+    assert g.delta_per_unit is None
+    assert fmt_combined_delta(g).endswith(" deltas")

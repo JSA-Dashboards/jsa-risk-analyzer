@@ -205,7 +205,19 @@ def render_blotter_totals(
     groups = book_totals_by_group(
         positions, evals, lambda p: effective_underlying_display(p, commodity=commodity)
     )
-    if len(groups) > 1:   # one group is the book -- printing it twice says nothing
+    # ONE GROUP STILL NEEDS ITS DELTA, and suppressing the whole block was wrong.
+    # The rows duplicate the book line's Position and P&L when there is only one
+    # underlying -- but the book line has never carried a DELTA, so suppressing them
+    # left the combined figure nowhere on the page for a book held in a single
+    # contract, which is what building one strangle looks like. Reported by Ross
+    # 2026-10-28 on a two-leg Feb '27 book; he reasonably assumed the position had to
+    # come from an import for the page to show it.
+    #
+    # So: several underlyings get the breakdown, one gets the delta on the book line
+    # below. A book-level combined delta is only meaningful when every leg shares an
+    # underlying -- deltas on different futures contracts do not add -- which is
+    # exactly the case this branch covers.
+    if len(groups) > 1:
         head = ("<div style='margin:4px 0 2px 2px;font-size:13px;color:#898781'>"
                 "<span style='display:inline-block;min-width:150px'>Combined by underlying</span>"
                 "<span style='display:inline-block;min-width:110px'>Delta</span>"
@@ -226,14 +238,14 @@ def render_blotter_totals(
 
     net_delta, total_pnl = book_totals(evals)
     delta_str, pnl_str = fmt_total_delta(net_delta, commodity.unit), fmt_total_pnl(total_pnl)
-    st.markdown(
-        "<div style='margin:2px 0 6px 2px'>"
-        + _totals_html("Net Position", delta_str, _sign_style_color(net_delta))
-        + "<span style='color:#898781;margin:0 14px'>|</span>"
-        + _totals_html("Total P&L", pnl_str, _sign_style_color(total_pnl))
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+    sep = "<span style='color:#898781;margin:0 14px'>|</span>"
+    line = _totals_html("Net Position", delta_str, _sign_style_color(net_delta))
+    if len(groups) == 1:
+        g = groups[0]
+        line += sep + _totals_html("Combined Delta", fmt_combined_delta(g),
+                                   _sign_style_color(g.delta_contracts))
+    line += sep + _totals_html("Total P&L", pnl_str, _sign_style_color(total_pnl))
+    st.markdown(f"<div style='margin:2px 0 6px 2px'>{line}</div>", unsafe_allow_html=True)
 
 
 def render_blotter(
