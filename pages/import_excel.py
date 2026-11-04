@@ -121,12 +121,15 @@ if "import_headers" in st.session_state:
             }
             st.rerun()
     with save_col:
-        preset_name = st.text_input("Save current mapping as preset named…")
-        if st.button("Save preset") and preset_name:
-            header_mapping = mapping_to_header_names(st.session_state.import_mapping, headers)
-            presets_repo.save_preset(preset_name, header_mapping, created_by="CJACOBS")
-            st.success(f'Saved preset "{preset_name}".')
-            st.rerun()
+        # Presets are shared across every session, so a read-only embed (state.session_only) neither saves
+        # one nor offers to.
+        if not state.session_only():
+            preset_name = st.text_input("Save current mapping as preset named…")
+            if st.button("Save preset") and preset_name:
+                header_mapping = mapping_to_header_names(st.session_state.import_mapping, headers)
+                presets_repo.save_preset(preset_name, header_mapping, created_by="CJACOBS")
+                st.success(f'Saved preset "{preset_name}".')
+                st.rerun()
 
     options = ["— none —"] + headers
     new_mapping = {}
@@ -140,7 +143,8 @@ if "import_headers" in st.session_state:
 
     if st.button("Build preview", type="primary"):
         header_mapping = mapping_to_header_names(new_mapping, headers)
-        presets_repo.set_last_used_mapping(header_mapping, updated_by="CJACOBS")
+        if not state.session_only():
+            presets_repo.set_last_used_mapping(header_mapping, updated_by="CJACOBS")
         staging = [build_staging_row(row, headers, new_mapping, commodity.price_divisor) for row in st.session_state.import_rows]
         st.session_state.import_staging = staging
 
