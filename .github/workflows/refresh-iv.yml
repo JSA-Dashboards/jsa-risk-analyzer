@@ -1,11 +1,11 @@
-name: Refresh corn IV from CME DataMine
+name: Refresh IV from CME DataMine (manual)
 
+# Manual only. The daily refresh runs on the droplet (deploy/run_iv_refresh.sh, via cron), which
+# already holds the credentials. This workflow is a fallback for catching up by hand with
+# "Run workflow" -- it needs the repository secrets named below (Settings > Secrets and
+# variables > Actions); without them it fails within seconds. It used to run on a daily
+# schedule, which emailed a failure every day while those secrets were unset.
 on:
-  schedule:
-    # ~11:00 America/Chicago (CDT most of the year -- GitHub's cron is fixed UTC, so this
-    # drifts an hour during CST, roughly Nov-Mar). Use "Run workflow" below to catch up
-    # on demand any time, regardless of drift.
-    - cron: "0 16 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -66,5 +66,5 @@ jobs:
               f.write(f"password = {q('CME_DATAMINE_PASSWORD')}\n")
           PYEOF
 
-      - name: Refresh IV_SNAPSHOT from CME DataMine
-        run: python scripts/refresh_iv_from_cme.py --updated-by github-actions
+      - name: Refresh IV_SNAPSHOT from CME DataMine (all commodities)
+        run: python scripts/refresh_iv_from_cme.py --commodity ALL --updated-by github-actions
