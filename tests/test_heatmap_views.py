@@ -103,3 +103,24 @@ def test_the_caption_has_no_bare_dollar_amounts():
     amounts at all now, which keeps it out of that trap."""
     said = captions_for([a_call(last_tick=0.0260)], centred=False)[0]
     assert said.count("$") == said.count(r"\$")
+
+
+def test_both_heatmaps_render_together_even_when_their_figures_are_identical():
+    """A book at zero P&L makes the centred and uncentred grids the same figure, and Streamlit
+    derives a chart's ID from its content -- so without explicit keys the page raised
+    DuplicateElementId. Run through the real Streamlit runtime, since the error is raised there."""
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import sys
+        sys.path.insert(0, "src")
+        from jsa_risk.pricing.commodities import CORN
+        from jsa_risk.pricing.stress import Position, StressState
+        from jsa_risk.ui import charts
+        book = [Position(id=1, label="ZCZ26", type="future", qty=10, entry=4.62)]   # mark == entry
+        price = lambda key: 4.62
+        for centred in (True, False):
+            charts.render_pnl_heatmap(book, StressState(), price, commodity=CORN, centre_on_today=centred)
+
+    at = AppTest.from_function(page).run(timeout=60)
+    assert not at.exception, [e.value for e in at.exception]
